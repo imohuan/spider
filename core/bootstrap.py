@@ -223,3 +223,60 @@ def open_service_ui(
             logger.warning(f"自动打开浏览器失败: {e}")
         else:
             print(f"[warn] 自动打开浏览器失败: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 图片下载队列
+# ═══════════════════════════════════════════════════════════════
+
+def start_image_worker(
+    storage,
+    downloader,
+    config,
+    logger: logging.Logger | None = None,
+) -> tuple:
+    """在独立线程 + 专用事件循环中启动 ImageQueueWorker。
+
+    自带 event loop，不依赖主线程 loop，http/browser 模式都能消费队列。
+    dev.py 和 main.py 启动后都应调用此函数。
+
+    :returns: (worker, loop, thread) 三元组，用于 stop 时传入 stop_image_worker
+    """
+    from core.image_queue_worker import ImageQueueWorker
+
+    img_worker = ImageQueueWorker(storage, downloader, config)
+    loop = create_event_loop()
+
+    def _run_worker():
+        loop.run_until_complete(img_worker.run())
+
+    t = threading.Thread(target=_run_worker, daemon=True)
+    t.start()
+    if logger:
+        logger.info("图片队列 Worker 已启动（独立线程 + 专用事件循环）")
+    return img_worker, loop, t
+
+
+def stop_image_worker(
+    worker,
+    loop: asyncio.AbstractEventLoop,
+    thread: threading.Thread,
+    logger: logging.Logger | None = None,
+    timeout: float = 5.0,
+) -> None:
+    """停止 ImageQueueWorker 并清理事件循环。
+
+    :param worker: ImageQueueWorker 实例
+    :param loop: 专用事件循环
+    :param thread: Worker 线程
+    :param logger: 日志
+    :param timeout: 等待 worker 协程取消的超时秒数
+    """
+    worker.stop()
+    # 取消 event loop 中所有 pending task，给 run() 一个机会退出
+    cancel_all_tasks(loop, logger)
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=timeout)
+    loop.close()
+    if logger:
+        logger.info("图片队列 Worker 已停止")

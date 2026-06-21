@@ -28,6 +28,8 @@ from core.bootstrap import (
     kill_port,
     open_service_ui,
     shutdown_browser,
+    start_image_worker,
+    stop_image_worker,
     start_web_server_in_thread,
 )
 
@@ -158,6 +160,10 @@ def _run_scheduler() -> None:
 scheduler_thread = threading.Thread(target=_run_scheduler, daemon=True)
 scheduler_thread.start()
 
+# 图片下载队列 Worker（独立线程 + 专用事件循环，http/browser 模式都能消费）
+_img_worker, _img_loop, _img_thread = start_image_worker(
+    storage=db, downloader=tools.image_downloader, config=config_mgr, logger=logger,
+)
 
 flask_thread = start_web_server_in_thread(
     app, host=args.web_host, port=args.web_port, logger=logger,
@@ -188,6 +194,8 @@ def _shutdown(sig=None, frame=None) -> None:
     _shutting_down = True
     logger.info("正在关闭...")
     scheduler.stop()
+    # 停止图片队列 Worker
+    stop_image_worker(_img_worker, _img_loop, _img_thread, logger)
     try:
         fe_proc.terminate()
         fe_proc.wait(timeout=5)

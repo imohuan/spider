@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 from typing import Any
 
@@ -37,6 +36,8 @@ from core.bootstrap import (
     cancel_all_tasks,
     start_web_server_in_thread,
     open_service_ui,
+    start_image_worker,
+    stop_image_worker,
 )
 
 
@@ -235,17 +236,15 @@ def main(argv: list[str] | None = None) -> int:
         proxy_pool.start_health_check_loop()
 
     # 启动浏览器（用持久化事件循环，避免 asyncio.run 创建新循环导致 Playwright 对象失效）
-    image_worker_task = None
     try:
         event_loop.run_until_complete(browser.start())
 
-        # 启动图片下载队列后台 Worker
-        from core.image_queue_worker import ImageQueueWorker
+        # 图片下载队列 Worker（独立线程 + 专用事件循环，http/browser 模式都能消费）
         img_downloader = components["image_downloader"]
         img_storage = components["storage"]
-        img_worker = ImageQueueWorker(img_storage, img_downloader, config_mgr)
-        image_worker_task = asyncio.ensure_future(img_worker.run(), loop=event_loop)
-        logger.info("图片队列 Worker 已启动")
+        img_worker, img_loop, img_thread = start_image_worker(
+            storage=img_storage, downloader=img_downloader, config=config_mgr, logger=logger,
+        )
 
         try:
             # 主循环
@@ -258,14 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         finally:
             # 停止图片 Worker
-            img_worker.stop()
-            if image_worker_task is not None and not image_worker_task.done():
-                try:
-                    event_loop.run_until_complete(
-                        asyncio.wait_for(image_worker_task, timeout=5)
-                    )
-                except (asyncio.TimeoutError, Exception):
-                    image_worker_task.cancel()
+            stop_image_worker(img_worker, img_loop, img_thread, logger)
             proxy_pool.stop_health_check_loop()
             # 关闭浏览器 — 连接可能已断开（Ctrl+C 时常见），吞掉错误不炸
             try:
