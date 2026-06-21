@@ -417,6 +417,24 @@ def test_enqueue_image_dedupes_by_url(storage):
     assert storage.enqueue_image("https://x.com/a.jpg") is None
 
 
+def test_enqueue_image_skips_done_url(storage):
+    """同 URL 已下载完成 → 不应重新入队。"""
+    sid = storage.enqueue_image("https://x.com/done.jpg")
+    storage.acquire_pending_images(10)
+    storage.mark_image_done(sid, "done.jpg")
+    assert storage.enqueue_image("https://x.com/done.jpg") is None
+
+
+def test_enqueue_image_retries_failed_url(storage):
+    """同 URL 之前失败 → 应允许重新入队。"""
+    sid = storage.enqueue_image("https://x.com/fail.jpg", max_retry=1)
+    storage.acquire_pending_images(10)
+    storage.mark_image_failed(sid, "network error")
+    sid2 = storage.enqueue_image("https://x.com/fail.jpg")
+    assert sid2 is not None
+    assert sid2 != sid
+
+
 def test_acquire_pending_images(storage):
     storage.enqueue_image("https://x.com/a.jpg")
     storage.enqueue_image("https://x.com/b.jpg")

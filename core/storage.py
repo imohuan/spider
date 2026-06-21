@@ -528,14 +528,16 @@ class Storage:
         self, url: str, request_id: int | None = None,
         queue_id: int | None = None, max_retry: int = 3,
     ) -> int | None:
-        """将图片 URL 加入下载队列。同 URL 不重复入队。
+        """将图片 URL 加入下载队列。已下载/待下载的同 URL 不重复入队。
 
         :return: 插入的 row id，URL 已存在返回 None
         """
         url_hash = _hash_url(url)
         with self._lock:
+            # 同 URL 已 pending 或已 done → 跳过
             existing = self._conn.execute(
-                "SELECT id FROM image_queue WHERE url_hash=? AND status='pending'",
+                "SELECT id, status, local_path FROM image_queue "
+                "WHERE url_hash=? AND status IN ('pending', 'done')",
                 (url_hash,),
             ).fetchone()
             if existing:

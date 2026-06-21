@@ -14,9 +14,12 @@ const URL_RE = /https?:\/\/[^\s<>"'`（）()「」【】[\]]+/g;
  * @param text - 原始文本
  * @returns 带 <a> 标签的 HTML 字符串，通过 v-html 渲染
  */
-function linkify(text: string | undefined): string {
-  if (!text) return '';
-  const escaped = text
+function linkify(text: any): string {
+  if (text === null || text === undefined) return '';
+  // 转字符串：数字/布尔等非字符串先 stringify
+  const raw = typeof text === 'string' ? text : String(text);
+  if (!raw) return '';
+  const escaped = raw
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { captchaApi } from '@/api'
+import { useLinkify } from '@/components/ui'
+
+const { linkify } = useLinkify()
 
 const cs = ref({ today: 0, auto_success: 0, switch_ip: 0, manual: 0 })
 const items = ref<any[]>([])
@@ -56,7 +59,7 @@ onMounted(fetchAll)
         <tbody class="divide-y divide-outline-variant">
           <tr v-for="c in items" :key="c.id" class="hover:bg-surface-container-low">
             <td class="px-4 py-2 text-secondary text-[11px]">{{ c.triggered_at }}</td>
-            <td class="px-4 py-2 font-mono text-primary truncate max-w-xs">{{ c.url }}</td>
+            <td class="px-4 py-2 font-mono truncate max-w-xs" v-html="linkify(c.url)" />
             <td class="px-4 py-2 font-mono text-secondary">{{ c.ip }}</td>
             <td class="px-4 py-2"><span class="pill" :class="strategyColors[c.strategy] || ''">{{ c.strategy }}</span></td>
             <td class="px-4 py-2 text-secondary">{{ c.attempt }}</td>

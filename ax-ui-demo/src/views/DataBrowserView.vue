@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { dataApi } from '@/api'
+import { useLinkify } from '@/components/ui'
+
+const { linkify } = useLinkify()
+
+const route = useRoute()
+const router = useRouter()
 
 const tables = ref<Array<{ name: string; rows: number }>>([])
 const selectedTable = ref('')
@@ -8,9 +15,24 @@ const rows = ref<any[]>([])
 const columns = ref<string[]>([])
 const total = ref(0)
 const page = ref(1)
-const size = 20
+const size = ref(20)
 
 const tableOptions = computed(() => tables.value.map(t => ({ value: t.name, label: `${t.name} (${t.rows} 行)` })))
+
+// 从 URL query 恢复业务表
+const restoreFromQuery = () => {
+  const qTable = route.query.table as string | undefined
+  const qPage = parseInt(route.query.page as string, 10)
+  if (qTable) selectedTable.value = qTable
+  if (qPage > 0) page.value = qPage
+}
+
+const syncQuery = () => {
+  const q: Record<string, string> = {}
+  if (selectedTable.value) q.table = selectedTable.value
+  if (page.value > 1) q.page = String(page.value)
+  router.replace({ query: q })
+}
 
 const fetchTables = async () => {
   try { tables.value = await dataApi.tables() } catch {}
@@ -19,18 +41,26 @@ const fetchTables = async () => {
 const fetchData = async () => {
   if (!selectedTable.value) return
   try {
-    const r: any = await dataApi.query(selectedTable.value, { page: page.value, size })
+    const r: any = await dataApi.query(selectedTable.value, { page: page.value, size: size.value })
     columns.value = r.columns; rows.value = r.items; total.value = r.total
+    syncQuery()
   } catch {}
 }
 
-const onTableChange = (_name: string) => { page.value = 1; fetchData() }
+const onTableChange = () => { page.value = 1; fetchData() }
+
+const handlePageChange = (p: number) => { page.value = p; fetchData() }
+const handleSizeChange = (s: number) => { size.value = s; page.value = 1; fetchData() }
 
 const exportCsv = () => {
   if (selectedTable.value) window.open(dataApi.exportUrl(selectedTable.value))
 }
 
-onMounted(fetchTables)
+onMounted(async () => {
+  restoreFromQuery()
+  await fetchTables()
+  if (selectedTable.value) fetchData()
+})
 </script>
 
 <template>
@@ -51,20 +81,22 @@ onMounted(fetchTables)
         </thead>
         <tbody class="divide-y divide-outline-variant">
           <tr v-for="(r, i) in rows" :key="i" class="hover:bg-surface-container-low">
-            <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]">{{ r[c] }}</td>
+            <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]" v-html="linkify(r[c])" />
           </tr>
         </tbody>
       </table>
       <div v-else class="p-ax-lg text-center text-secondary text-sm">
         {{ selectedTable ? '表为空' : '请选择业务表' }}
       </div>
-      <div v-if="selectedTable && total > 0" class="px-4 py-ax-sm border-t border-outline-variant flex justify-between text-[11px] text-secondary">
-        <span>{{ total }} 行</span>
-        <div class="flex gap-ax-sm">
-          <AxButton variant="ghost"  size="lg" :disabled="page<=1" @click="page--;fetchData()">上一页</AxButton>
-          <span class="py-1">{{ page }} / {{ Math.ceil(total/size) || 1 }}</span>
-          <AxButton variant="ghost"  size="lg" :disabled="page>=Math.ceil(total/size)" @click="page++;fetchData()">下一页</AxButton>
-        </div>
+      <div v-if="selectedTable && total > 0" class="px-4 py-ax-sm border-t border-outline-variant">
+        <AxPagination
+          :page="page"
+          :size="size"
+          :total="total"
+          :sizes="[20, 50, 100]"
+          @update:page="handlePageChange"
+          @update:size="handleSizeChange"
+        />
       </div>
     </div>
   </div>

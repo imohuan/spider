@@ -6,12 +6,14 @@
 特性：
 - **异步**：``asyncio.gather`` 并发下载，提高吞吐
 - **限流**：信号量控制并发数（避免压垮源站）
-- **去重**：URL 哈希做文件名，同 URL 不重复下载
+- **去重**：
+  - URL 级别：``.url_{md5}`` 标记文件，同 URL 不重复下载
+  - 内容级别：SHA256 前 16 位做文件名，不同 URL 同内容只存一份
 - **失败容错**：单个下载失败不影响整批，返回成功路径列表
 - **超时**：从 config.request_timeout 读取
 - **代理**：支持传入代理（与 RequestPool 共用 IP）
 
-文件命名：``images/{url_md5}.{ext}``
+文件命名：``images/{sha256[:16]}.{ext}``，URL→内容映射：``images/.url_{url_md5}``
 """
 from __future__ import annotations
 
@@ -66,22 +68,36 @@ class ImageDownloader:
     ) -> str | None:
         """下载单个图片，返回相对 save_dir 的路径。失败返回 None。
 
+        去重策略：
+        1. URL 级别 — ``.url_{url_md5}`` 标记文件记录了该 URL 对应的内容文件，
+           下次同 URL 直接走缓存
+        2. 内容级别 — 文件名 = ``{sha256[:16]}.{ext}``，两个不同 URL 下载同内容
+           只会存一份文件，第二个 URL 的标记指向同一内容文件
+
         :param url: 图片 URL
         :param proxy: 代理 URL（``http://ip:port``）
         :param client: 复用的 httpx.AsyncClient（批量下载时传入避免重复建连）
-        :return: 相对路径（如 ``abc123.jpg``）或 None
+        :return: 相对路径（如 ``abc123def456.jpg``）或 None
         """
         if not url or not url.startswith(("http://", "https://")):
             logger.warning(f"无效图片 URL: {url}")
             return None
 
-        rel_path = self._path_for_url(url)
-        abs_path = self.save_dir / rel_path
-        # 已下载则跳过
-        if abs_path.exists() and abs_path.stat().st_size > 0:
-            logger.debug(f"图片已存在，跳过: {url}")
-            return rel_path
+        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
 
+        # ── 1. URL 级别缓存：标记文件指向的内容已存在 → 直接返回 ──
+        url_marker = self.save_dir / f".url_{url_hash}"
+        if url_marker.exists():
+            try:
+                rel_path = url_marker.read_text().strip()
+                if (self.save_dir / rel_path).exists():
+                    return rel_path
+                # 标记存在但目标文件丢失 → 删除脏标记，继续下载
+                url_marker.unlink(missing_ok=True)
+            except Exception:
+                url_marker.unlink(missing_ok=True)
+
+        # ── 2. 下载 ──
         own_client = client is None
         if own_client:
             client = self._make_client(proxy)
@@ -92,14 +108,27 @@ class ImageDownloader:
             except Exception as e:
                 logger.warning(f"下载失败 {url}: {e}")
                 return None
+            content = resp.content
             content_type = resp.headers.get("content-type", "")
+
+            # ── 3. 内容哈希 → 文件名 ← ─
             ext = self._ext_for(url, content_type)
-            # 重新计算路径（ext 可能因 content-type 调整）
-            rel_path = self._path_for_url(url, ext)
-            abs_path = self.save_dir / rel_path
-            abs_path.write_bytes(resp.content)
-            logger.debug(f"下载完成: {url} → {rel_path} ({len(resp.content)} bytes)")
-            return rel_path
+            content_hash = hashlib.sha256(content).hexdigest()[:16]
+            content_rel = f"{content_hash}.{ext}"
+            content_abs = self.save_dir / content_rel
+
+            # ── 4. 内容级别去重 ──
+            if content_abs.exists() and content_abs.stat().st_size > 0:
+                logger.debug(f"内容重复（不同 URL），跳过写入: {url}")
+            else:
+                content_abs.write_bytes(content)
+                logger.debug(
+                    f"下载完成: {url} → {content_rel} ({len(content)} bytes)"
+                )
+
+            # ── 5. URL → 内容映射（标记文件） ──
+            url_marker.write_text(content_rel)
+            return content_rel
         finally:
             if own_client and client is not None:
                 await client.aclose()
@@ -139,13 +168,6 @@ class ImageDownloader:
         if proxy:
             kwargs["proxy"] = proxy
         return httpx.AsyncClient(**kwargs)
-
-    def _path_for_url(self, url: str, ext: str | None = None) -> str:
-        """根据 URL 计算保存路径（相对 save_dir）。"""
-        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
-        if ext is None:
-            ext = self._ext_for(url)
-        return f"{url_hash}.{ext}"
 
     @staticmethod
     def _ext_for(url: str, content_type: str = "") -> str:

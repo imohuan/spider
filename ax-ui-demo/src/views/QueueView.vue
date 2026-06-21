@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { queueApi, parsersApi } from '@/api'
-import { useNotify } from '@/components/ui'
+import { useNotify, useLinkify } from '@/components/ui'
 
 const { triggerNotify } = useNotify()
+const { linkify } = useLinkify()
 const stats = ref<Record<string, number>>({})
 const items = ref<any[]>([])
 const total = ref(0)
@@ -204,7 +205,7 @@ onUnmounted(() => { stopAutoRefresh() })
         </thead>
         <tbody class="divide-y divide-outline-variant">
           <tr v-for="q in items" :key="q.id" class="hover:bg-surface-container-low">
-            <td class="px-4 py-2 font-mono truncate max-w-[240px] text-primary">{{ q.url }}</td>
+            <td class="px-4 py-2 font-mono truncate max-w-[240px]" v-html="linkify(q.url)" />
             <td class="px-4 py-2 text-secondary">{{ q.parser }}</td>
             <td class="px-4 py-2"><span class="pill" :class="statusColors[q.status] || ''">{{ q.status }}</span></td>
             <td class="px-4 py-2 text-secondary">{{ q.retry }}</td>

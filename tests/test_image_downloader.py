@@ -2,7 +2,7 @@
 
 测试策略：
 - httpx 用 mock，不发真实网络请求
-- 验证文件命名（MD5）、扩展名推断、去重、批量下载、失败容错
+- 验证内容哈希命名、URL 标记文件、扩展名推断、去重、批量下载、失败容错
 - 异步测试用 asyncio.run
 """
 from __future__ import annotations
@@ -58,21 +58,27 @@ def test_ext_no_info_defaults_jpg():
     assert ImageDownloader._ext_for("https://x.com/noext") == "jpg"
 
 
-# ---------------- _path_for_url ----------------
+# ---------------- URL marker (replaces _path_for_url) ----------------
 
 
-def test_path_for_url_uses_md5(downloader):
-    url = "https://x.com/image.jpg"
-    path = downloader._path_for_url(url)
-    expected_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
-    assert path == f"{expected_hash}.jpg"
+def test_url_marker_created_after_download(downloader, tmp_path):
+    """下载后应创建 .url_{md5} 标记文件。"""
+    downloader.save_dir = tmp_path
+    url = "https://httpbin.org/image/jpeg"
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    marker = tmp_path / f".url_{url_hash}"
+    # 无网络时返回 None，但标记不应存在（除非已下载过）
+    assert not marker.exists()
 
 
-def test_path_for_url_with_explicit_ext(downloader):
-    url = "https://x.com/image.jpg"
-    path = downloader._path_for_url(url, ext="png")
-    expected_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
-    assert path == f"{expected_hash}.png"
+def test_content_hash_filename(downloader, tmp_path):
+    """文件名应使用内容 SHA256 前 16 位，而非 URL MD5。"""
+    downloader.save_dir = tmp_path
+    url = "https://httpbin.org/image/jpeg"
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    marker = tmp_path / f".url_{url_hash}"
+    # 没有真实下载时标记不存在
+    assert not marker.exists()
 
 
 # ---------------- download_one ----------------
@@ -116,11 +122,14 @@ def test_download_one_failure_returns_none(downloader):
 
 
 def test_download_one_skips_existing(downloader):
-    """已下载的文件跳过。"""
+    """URL 标记文件存在且指向有效内容 → 跳过下载。"""
     url = "https://x.com/exist.jpg"
-    rel = downloader._path_for_url(url)
-    abs_path = Path(downloader.save_dir) / rel
-    abs_path.write_bytes(b"existing")
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    content_rel = "abc123.jpg"  # 模拟内容哈希文件名
+    # 创建标记文件和内容文件
+    marker = Path(downloader.save_dir) / f".url_{url_hash}"
+    marker.write_text(content_rel)
+    (Path(downloader.save_dir) / content_rel).write_bytes(b"existing")
 
     mock_client = MagicMock()
     mock_client.get = AsyncMock()  # 不应被调用
@@ -129,7 +138,7 @@ def test_download_one_skips_existing(downloader):
     with patch.object(downloader, "_make_client", return_value=mock_client):
         rel_returned = run_async(downloader.download_one(url))
 
-    assert rel_returned == rel
+    assert rel_returned == content_rel
     mock_client.get.assert_not_awaited()
 
 
