@@ -36,7 +36,7 @@ def update_batch():
 
 @bp.route("/reset", methods=["POST"])
 def reset_defaults():
-    ConfigManager(Storage()).init_defaults(force=True)
+    ConfigManager(Storage()).init_defaults()
     return jsonify({"ok": True})
 
 

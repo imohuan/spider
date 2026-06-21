@@ -416,8 +416,9 @@ class RequestPool:
             f"[Parser:{parser.__class__.__name__}] 提取数据: {len(data)}条"
         )
 
-        # 保存业务数据
+        # 保存业务数据（先确保表存在，幂等）
         if data:
+            parser.ensure_table(self.storage)
             self.storage.save_business_data(parser.table_name, data)
 
         # 更新状态

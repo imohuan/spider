@@ -48,6 +48,48 @@
             "cwd": "${workspaceFolder}",
             "env": { "PYTHONUNBUFFERED": "1" },
             "justMyCode": false
+        },
+        {
+            "name": "dev.py (前后端联调)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dev.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "dev.py (DEBUG 日志)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/dev.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--log-level", "DEBUG"],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "main.py (http + serve)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--serve", "--fetch-mode", "http"],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            },
+            "justMyCode": false
         }
     ]
 }

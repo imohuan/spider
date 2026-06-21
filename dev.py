@@ -106,6 +106,7 @@ db = Storage(config.DB_PATH)
 # 初始化配置
 from core.config_manager import ConfigManager
 config_mgr = ConfigManager(db)
+config_mgr.init_defaults()  # 首次启动写入 35 项默认配置（幂等）
 
 # ── 启动后端 ──────────────────────────────────────────────
 from web.app import create_app, socketio
@@ -116,13 +117,28 @@ app = create_app()  # 开发模式：不提供静态文件，CORS 放行跨域
 # 开发模式下初始化最小爬虫组件集, 让 API 有可用数据返回
 from parser.registry import ParserRegistry
 from parser.base import ParserTools
+from parser.tools.html_parser import HtmlParser
+from parser.tools.font_decoder import FontDecoder
+from parser.tools.image_downloader import ImageDownloader
 
-tools = ParserTools()
+tools = ParserTools(
+    html_parser=HtmlParser(),
+    font_decoder=FontDecoder(),
+    image_downloader=ImageDownloader(),
+)
 registry = ParserRegistry(storage=db, tools=tools)
 try:
     registry.discover()
 except Exception:
     pass  # parser/plugins 可能不存在, 不影响启动
+
+# 确保所有 parser 业务表已创建（幂等）
+try:
+    created = registry.ensure_all_tables()
+    if created > 0:
+        logger.info(f"已创建 {created} 个业务表")
+except Exception as e:
+    logger.warning(f"创建业务表失败: {e}")
 
 # 初始化最小爬虫核心，供 API 使用
 from core.state_machine import StateMachine
