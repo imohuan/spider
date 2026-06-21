@@ -16,7 +16,6 @@ HTML 输出位置：
 from __future__ import annotations
 
 import argparse
-import asyncio
 import glob
 import os
 import sys
@@ -25,13 +24,13 @@ import sys
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PROJECT_ROOT)
 
-from config import ensure_dirs, DATA_DIR, RAW_RESPONSE_DIR
-from core.logger import setup_logging, get_logger
+from config import DATA_DIR, RAW_RESPONSE_DIR
+from core.logger import get_logger
+from core.bootstrap import init_environment, start_browser, shutdown_browser
 from core.storage import Storage
 from core.config_manager import ConfigManager
 from core.state_machine import StateMachine
 from core.request_pool import RequestPool
-from core.browser import CrawlerBrowser
 from parser.tools.html_parser import HtmlParser
 from parser.base import BaseParser, ParserTools
 from parser.plugins.shengyizr._base import SimplePageParser
@@ -64,19 +63,18 @@ def build_components(db_path: str):
         image_downloader=None,
     )
 
-    return storage, config_mgr, state_machine, request_pool, tools, logger
+    return storage, config_mgr, state_machine, request_pool, tools
 
 
 # ── 主流程 ───────────────────────────────────────────────────────
 def main():
     parser_args = _parse_args()
 
-    ensure_dirs()
-    setup_logging("DEBUG")
+    logger = init_environment("DEBUG")
 
     # 独立 DB，不干扰主爬虫数据库（PID 后缀确保每次运行独立，避免文件锁）
     db_path = os.path.join(DATA_DIR, f"test_parser_{os.getpid()}.db")
-    storage, config_mgr, state_machine, request_pool, tools, logger = build_components(db_path)
+    storage, config_mgr, state_machine, request_pool, tools = build_components(db_path)
 
     if parser_args.fetch_mode:
         config_mgr.set("fetch_mode", parser_args.fetch_mode)
@@ -93,20 +91,16 @@ def main():
 
     # --- Browser 模式额外初始化 ---
     if fetch_mode == "browser":
-        event_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(event_loop)
         headless = not parser_args.show_browser
-        from core.browser import CrawlerBrowser
-        browser = CrawlerBrowser(config_mgr, headless=headless)
-        event_loop.run_until_complete(browser.start())
+        browser, event_loop = start_browser(config_mgr, headless=headless)
         request_pool.browser = browser
         request_pool._loop = event_loop
         if parser_args.show_browser:
             request_pool.keep_browser_open = True
         logger.info(f"浏览器已启动 (headless={headless}, keep_open={parser_args.show_browser})")
     else:
-        event_loop = None
         browser = None
+        event_loop = None
 
     # 入队 + acquire
     queue_id = storage.enqueue(url, parser_name="ShengyiZRListParser", fetch_mode=fetch_mode)
@@ -141,10 +135,7 @@ def main():
                 logger.info("收到退出信号")
     finally:
         if browser is not None and event_loop is not None:
-            try:
-                event_loop.run_until_complete(browser.close())
-            except Exception:
-                pass
+            shutdown_browser(browser, event_loop, logger)
         storage.close()
 
         if not parser_args.keep_db:

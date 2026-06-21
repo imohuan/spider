@@ -24,16 +24,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-import threading
 from typing import Any
 
-import config
-from core.logger import get_logger, setup_logging
 from core.storage import Storage
 from core.config_manager import ConfigManager
 from core.state_machine import StateMachine
 from core.scheduler import Scheduler
 from core.request_pool import RequestPool
+from core.bootstrap import (
+    init_environment,
+    create_event_loop,
+    cancel_all_tasks,
+    start_web_server_in_thread,
+    open_service_ui,
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -83,21 +87,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     return parser.parse_args(argv)
 
-
-def _cancel_all_tasks(loop: asyncio.AbstractEventLoop, logger) -> None:
-    """取消事件循环中所有待处理任务，静默清理。
-
-    Ctrl+C 后 Playwright 连接可能已断开，导致残留的 Connection.run() 协程。
-    不清理则 ``loop.close()`` 时会打印 "Task was destroyed but it is pending!"。
-    """
-    pending = asyncio.all_tasks(loop)
-    if not pending:
-        return
-    logger.debug(f"取消 {len(pending)} 个待处理异步任务")
-    for t in pending:
-        t.cancel()
-    # gather + return_exceptions：吞掉 CancelledError，不炸
-    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
 
 def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any]:
@@ -199,18 +188,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     # 初始化目录 + 日志
-    config.ensure_dirs()
     log_level = args.log_level or "INFO"
-    setup_logging(log_level)
-    logger = get_logger("main")
+    logger = init_environment(log_level)
     logger.info("=" * 60)
     logger.info("58同城爬虫框架启动")
     logger.info("=" * 60)
 
     # 创建持久事件循环（Playwright 对象绑循环，必须全程同一循环）
-    import asyncio
-    event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(event_loop)
+    event_loop = create_event_loop()
 
     # 装配组件（传入 event_loop 给 RequestPool）
     components = build_components(args, event_loop=event_loop)
@@ -231,22 +216,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # Web 管理后台（后台线程启动，不阻塞爬虫主循环）
     if args.serve:
-        from web.app import create_app, socketio as sio
+        from web.app import create_app
 
         web_app = create_app(static_folder='web/static')
-        # 注入组件给 API 蓝图复用
         web_app.config['CRAWLER_COMPONENTS'] = components
-        # 初始化爬虫控制 API 的调度器引用
         from web.api.crawler_control import init_scheduler
         init_scheduler(scheduler)
 
-        def _run_server():
-            logger.info(f"Web 管理后台启动: http://{args.web_host}:{args.web_port}")
-            sio.run(web_app, host=args.web_host, port=args.web_port,
-                    debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
-
-        server_thread = threading.Thread(target=_run_server, daemon=True)
-        server_thread.start()
+        server_thread = start_web_server_in_thread(
+            web_app, host=args.web_host, port=args.web_port, logger=logger,
+        )
+        open_service_ui(host=args.web_host, port=args.web_port, logger=logger)
     else:
         server_thread = None
 
@@ -293,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as e:
                 logger.warning(f"浏览器关闭异常（可忽略）: {e}")
             # 取消所有待处理异步任务，避免 "Task was destroyed but it is pending!"
-            _cancel_all_tasks(event_loop, logger)
+            cancel_all_tasks(event_loop, logger)
     finally:
         event_loop.close()
         logger.info("爬虫已退出")
