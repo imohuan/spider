@@ -1,0 +1,33 @@
+# 58-data 58同城爬虫框架依赖
+# Python 3.13 + Playwright + fontTools + PIL + ddddocr + lxml + httpx
+
+# 浏览器渲染 + 反检测
+playwright>=1.40.0,<2.0.0
+playwright-stealth>=2.0.0,<3.0.0
+
+# 字体解析（58 字体反爬）
+fontTools>=4.47.0,<5.0.0
+
+# PIL 图片生成（渲染字体字形为图片供 ddddocr 识别）
+Pillow>=10.0.0,<12.0.0
+
+# 字体识别 + 滑块/点选验证码识别
+ddddocr>=1.4.7,<2.0.0
+
+# HTML 解析（XPath / CSS 选择）
+lxml>=5.0.0,<6.0.0
+# lxml CSS 选择器依赖
+cssselect>=1.2.0,<2.0.0
+
+# 异步图片下载 + 代理 API 调用
+httpx>=0.26.0,<1.0.0
+
+# 测试框架
+pytest>=7.4.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
+
+# Web 管理后台
+flask>=3.0.0,<4.0.0
+flask-socketio>=5.3.0,<6.0.0
+eventlet>=0.36.0,<1.0.0
+flask-cors>=4.0.0,<5.0.0

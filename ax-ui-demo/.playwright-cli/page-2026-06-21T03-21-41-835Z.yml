@@ -1,0 +1,96 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - heading "Axiom UI 组件库演示" [level=1] [ref=e6]
+      - paragraph [ref=e7]: 基于 Vue 3 + Vite + TypeScript + Tailwind CSS v4 + Floating UI
+    - generic [ref=e8]:
+      - heading "AxButton" [level=2] [ref=e9]
+      - generic [ref=e10]:
+        - button "bolt Primary" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: bolt
+          - text: Primary
+        - button "visibility Outline" [ref=e13] [cursor=pointer]:
+          - generic [ref=e14]: visibility
+          - text: Outline
+        - button "menu Ghost" [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: menu
+          - text: Ghost
+        - button "delete Danger" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: delete
+          - text: Danger
+        - button "设置" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]: settings
+        - button "账户" [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]: account_circle
+        - button "加载中" [ref=e23] [cursor=pointer]:
+          - img [ref=e25]
+          - text: 加载中
+        - button "禁用" [disabled]
+    - generic [ref=e28]:
+      - heading "AxInput / AxSelect / AxSwitch" [level=2] [ref=e29]
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - text: 名称
+          - textbox "请输入名称" [ref=e33]
+        - generic [ref=e34]:
+          - text: 框架
+          - generic [ref=e38] [cursor=pointer]:
+            - generic [ref=e39]: 选择一个框架
+            - generic [ref=e40]: expand_more
+      - generic [ref=e41]:
+        - switch [ref=e42] [cursor=pointer]
+        - generic [ref=e43]: 我已阅读并同意条款
+      - generic [ref=e44]:
+        - text: 音量：60
+        - generic [ref=e45]:
+          - generic [ref=e47]: 60%
+          - slider [ref=e49] [cursor=pointer]: "60"
+    - generic [ref=e50]:
+      - heading "AxAlert" [level=2] [ref=e51]
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e54]: info
+          - generic [ref=e55]:
+            - paragraph [ref=e56]: 信息提示
+            - paragraph [ref=e57]: 这是一条普通信息提示。
+        - button "close" [ref=e58]:
+          - generic [ref=e59]: close
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]: check_circle
+          - generic [ref=e63]:
+            - paragraph [ref=e64]: 操作成功
+            - paragraph [ref=e65]: 数据已成功保存到本地。
+        - button "close" [ref=e66]:
+          - generic [ref=e67]: close
+      - generic [ref=e68]:
+        - generic [ref=e69]:
+          - generic [ref=e70]: warning
+          - generic [ref=e71]:
+            - paragraph [ref=e72]: 注意
+            - paragraph [ref=e73]: 继续操作将无法撤销。
+        - button "close" [ref=e74]:
+          - generic [ref=e75]: close
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - generic [ref=e78]: error
+          - generic [ref=e79]:
+            - paragraph [ref=e80]: 错误
+            - paragraph [ref=e81]: 网络连接失败，请稍后重试。
+        - button "close" [ref=e82]:
+          - generic [ref=e83]: close
+    - generic [ref=e84]:
+      - heading "AxDialog / useNotify" [level=2] [ref=e85]
+      - generic [ref=e86]:
+        - button "open_in_new 打开弹窗" [ref=e87] [cursor=pointer]:
+          - generic [ref=e88]: open_in_new
+          - text: 打开弹窗
+        - button "Info 通知" [ref=e89] [cursor=pointer]
+        - button "Success 通知" [ref=e90] [cursor=pointer]
+        - button "Error 通知" [ref=e91] [cursor=pointer]
+        - button "save 保存表单" [ref=e92] [cursor=pointer]:
+          - generic [ref=e93]: save
+          - text: 保存表单
+    - contentinfo [ref=e94]: Axiom UI · Powered by Vue 3 + Tailwind v4
+  - region "Notifications alt+T":
+    - list

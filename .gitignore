@@ -1,0 +1,95 @@
+# ============================================================
+# 58-data 项目 .gitignore
+# Python 3.13 + Flask + Playwright + Vue 3 + Vite + pnpm
+# ============================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+sdist/
+*.spec
+*.manifest
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest
+.pytest_cache/
+.tox/
+.nox/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --- Frontend ---
+node_modules/
+web/static/
+
+# --- Runtime Data ---
+data/
+*.db-shm
+*.db-wal
+
+# --- Logs ---
+*.log
+*.tmp
+
+# --- Environment / Secrets ---
+.env
+.env.local
+.env.*.local
+
+# --- Editor / IDE ---
+.vscode/
+.cursor/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+
+# --- OS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# --- Project Tools ---
+.codegraph/
+.playwright-cli/
+
+# WorkBuddy: 保留 memory 目录共享，忽略其余
+.workbuddy/*
+!.workbuddy/memory/
+
+# --- Backup / Misc ---
+*.bak
+*.backup
+*.orig
+*.rej

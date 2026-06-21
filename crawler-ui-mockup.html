@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>58 爬虫管理后台 · UI 轮廓示意</title>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.16);
+    --text: #1c1c1a;
+    --text-2: #5f5e5a;
+    --text-3: #888780;
+    --accent: #534ab7;
+    --accent-bg: #eeedfe;
+    --ok: #1d9e75;
+    --warn: #ba7517;
+    --err: #a32d2d;
+  }
+  html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  *{box-sizing:border-box;}
+  .nav-item{transition:background .12s,color .12s;}
+  .nav-item:hover{background:var(--accent-bg);}
+  .nav-item.active{background:var(--accent-bg);color:var(--accent);font-weight:500;}
+  .nav-item.active .nav-dot{background:var(--accent);}
+  .placeholder{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,.025) 8px,rgba(0,0,0,.025) 16px);border:1px dashed var(--border-strong);}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;line-height:1.4;font-weight:500;}
+  .badge-ok{background:#e1f5ee;color:#085041;}
+  .badge-warn{background:#faeeda;color:#633806;}
+  .badge-err{background:#fcebeb;color:#791f1f;}
+  .badge-info{background:#e6f1fb;color:#0c447c;}
+  .badge-purple{background:#eeedfe;color:#3c3489;}
+  .scroll-y{overflow-y:auto;}
+  .scroll-y::-webkit-scrollbar{width:6px;}
+  .scroll-y::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12);border-radius:3px;}
+  .fade-enter-active,.fade-leave-active{transition:opacity .15s;}
+  .fade-enter-from,.fade-leave-to{opacity:0;}
+  .tag-section{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:500;}
+  .log-console{background:#1c1c1a;color:#d4d4d4;}
+  .log-console::-webkit-scrollbar{width:6px;}
+  .log-console::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="app" class="min-h-screen flex">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-[color:var(--surface)] border-r border-[color:var(--border)] flex flex-col flex-shrink-0">
+    <div class="px-5 py-4 border-b border-[color:var(--border)]">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-md flex items-center justify-center text-white text-xs font-bold" style="background:var(--accent);">58</div>
+        <div>
+          <div class="text-sm font-medium leading-tight">爬虫管理后台</div>
+          <div class="text-[10px] text-[color:var(--text-3)] leading-tight">v0.1 · localhost</div>
+        </div>
+      </div>
+    </div>
+    <div class="px-4 py-3 border-b border-[color:var(--border)]">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-1.5 h-1.5 rounded-full" :style="{background:statusColor}"></span>
+        <span class="text-xs font-medium">{{statusText}}</span>
+      </div>
+      <div class="text-[10px] text-[color:var(--text-3)]">PID 3852 · 运行 2h17m</div>
+    </div>
+    <nav class="flex-1 py-2 scroll-y">
+      <div class="tag-section px-5 py-2">监控</div>
+      <a v-for="t in tabs.slice(0,2)" :key="t.id" href="#" @click.prevent="current=t.id"
+         :class="['nav-item flex items-center gap-3 px-5 py-2 text-sm',current===t.id?'active':'text-[color:var(--text-2)]']">
+        <span class="nav-dot w-1 h-1 rounded-full" :style="{background:current===t.id?'var(--accent)':'var(--text-3)'}"></span>
+        <span>{{t.name}}</span>
+      </a>
+      <div class="tag-section px-5 py-2 mt-2">数据</div>
+      <a v-for="t in tabs.slice(2,4)" :key="t.id" href="#" @click.prevent="current=t.id"
+         :class="['nav-item flex items-center gap-3 px-5 py-2 text-sm',current===t.id?'active':'text-[color:var(--text-2)]']">
+        <span class="nav-dot w-1 h-1 rounded-full" :style="{background:current===t.id?'var(--accent)':'var(--text-3)'}"></span>
+        <span>{{t.name}}</span>
+      </a>
+      <div class="tag-section px-5 py-2 mt-2">运维</div>
+      <a v-for="t in tabs.slice(4,7)" :key="t.id" href="#" @click.prevent="current=t.id"
+         :class="['nav-item flex items-center gap-3 px-5 py-2 text-sm',current===t.id?'active':'text-[color:var(--text-2)]']">
+        <span class="nav-dot w-1 h-1 rounded-full" :style="{background:current===t.id?'var(--accent)':'var(--text-3)'}"></span>
+        <span>{{t.name}}</span>
+      </a>
+      <div class="tag-section px-5 py-2 mt-2">系统</div>
+      <a v-for="t in tabs.slice(7)" :key="t.id" href="#" @click.prevent="current=t.id"
+         :class="['nav-item flex items-center gap-3 px-5 py-2 text-sm',current===t.id?'active':'text-[color:var(--text-2)]']">
+        <span class="nav-dot w-1 h-1 rounded-full" :style="{background:current===t.id?'var(--accent)':'var(--text-3)'}"></span>
+        <span>{{t.name}}</span>
+      </a>
+    </nav>
+    <div class="px-4 py-3 border-t border-[color:var(--border)] text-[10px] text-[color:var(--text-3)]">
+      <div class="flex justify-between"><span>SQLite</span><span>WAL · 12.4 MB</span></div>
+      <div class="flex justify-between mt-1"><span>Flask</span><span>:5000</span></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="h-14 border-b border-[color:var(--border)] bg-[color:var(--surface)] flex items-center justify-between px-6 flex-shrink-0">
+      <div>
+        <h1 class="text-base font-medium leading-tight">{{activeTab.name}}</h1>
+        <div class="text-[11px] text-[color:var(--text-3)] leading-tight">{{activeTab.desc}}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="text-xs px-3 py-1.5 rounded-md border border-[color:var(--border-strong)] hover:bg-gray-50">刷新</button>
+        <button class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--accent);">启动爬虫</button>
+      </div>
+    </header>
+
+    <div class="flex-1 scroll-y p-6">
+      <transition name="fade" mode="out-in">
+        <div :key="current">
+
+          <!-- Page 1: Dashboard -->
+          <div v-if="current==='dashboard'" class="space-y-4">
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl px-5 py-4 flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <span class="w-2 h-2 rounded-full" style="background:var(--ok);"></span>
+                <div>
+                  <div class="text-sm font-medium">爬虫运行中</div>
+                  <div class="text-xs text-[color:var(--text-3)]">Scheduler 主循环 · 3 并发</div>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button class="text-xs px-3 py-1.5 rounded-md border border-[color:var(--border-strong)]">暂停</button>
+                <button class="text-xs px-3 py-1.5 rounded-md border" style="border-color:var(--err);color:var(--err);">停止</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-4 gap-3">
+              <div v-for="m in metrics" :key="m.label" class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="text-xs text-[color:var(--text-2)] mb-1">{{m.label}}</div>
+                <div class="text-2xl font-medium">{{m.value}}</div>
+                <div class="text-[11px] mt-1" :style="{color:m.trendColor}">{{m.trend}}</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="col-span-2 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="flex justify-between mb-3">
+                  <span class="text-sm font-medium">抓取进度（按小时）</span>
+                  <span class="text-[11px] text-[color:var(--text-3)]">最近 24h</span>
+                </div>
+                <div class="placeholder h-32 rounded-md flex items-center justify-center text-xs text-[color:var(--text-3)]">
+                  柱状图 · Chart.js / ECharts 占位
+                </div>
+              </div>
+              <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="flex justify-between mb-3">
+                  <span class="text-sm font-medium">最近任务流水</span>
+                  <a class="text-[11px]" style="color:var(--accent);">全部 &rarr;</a>
+                </div>
+                <div class="space-y-2.5 text-xs">
+                  <div v-for="f in flows" :key="f.text" class="flex gap-2 items-start">
+                    <span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" :style="{background:f.color}"></span>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-medium truncate">{{f.text}}</div>
+                      <div class="text-[color:var(--text-3)] text-[11px]">{{f.time}}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Page 2: Queue -->
+          <div v-else-if="current==='queue'" class="space-y-4">
+            <div class="grid grid-cols-6 gap-2">
+              <div v-for="s in queueStats" :key="s.name" class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-lg p-3">
+                <div class="text-[10px] text-[color:var(--text-3)] uppercase tracking-wide">{{s.name}}</div>
+                <div class="text-lg font-medium" :style="{color:s.color}">{{s.count}}</div>
+              </div>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl px-4 py-3 flex items-center gap-3">
+              <select class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 bg-transparent"><option>全部状态</option></select>
+              <select class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 bg-transparent"><option>全部 Parser</option></select>
+              <input class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 flex-1 bg-transparent" placeholder="搜索 URL 或错误信息..." />
+              <button class="text-xs px-3 py-1 rounded" style="background:var(--accent-bg);color:var(--accent);">重试 blocked</button>
+              <button class="text-xs px-3 py-1 rounded border border-[color:var(--border-strong)]">导出</button>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[color:var(--text-3)] text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium">URL</th>
+                    <th class="text-left px-4 py-2 font-medium w-32">Parser</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">状态</th>
+                    <th class="text-left px-4 py-2 font-medium w-14">重试</th>
+                    <th class="text-left px-4 py-2 font-medium w-14">换IP</th>
+                    <th class="text-left px-4 py-2 font-medium w-32">错误</th>
+                    <th class="text-left px-4 py-2 font-medium w-24">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[color:var(--border)]">
+                  <tr v-for="q in queueRows" :key="q.url" class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 truncate max-w-xs">{{q.url}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{q.parser}}</td>
+                    <td class="px-4 py-2.5"><span class="pill" :class="q.sc">{{q.status}}</span></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{q.retry}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{q.switch}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)] truncate max-w-[120px]">{{q.error||'—'}}</td>
+                    <td class="px-4 py-2.5"><a style="color:var(--accent);">详情</a><span class="mx-1">·</span><a style="color:var(--accent);">重试</a></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="px-4 py-2 border-t border-[color:var(--border)] flex justify-between text-[11px] text-[color:var(--text-3)]">
+                <span>共 328 条 · 第 1/33 页</span>
+                <span>上一页 · 下一页</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Page 3: DataBrowser -->
+          <div v-else-if="current==='data'" class="space-y-4">
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl px-4 py-3 flex items-center gap-3">
+              <select class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 bg-transparent">
+                <option>ershouche_cars (1,247 行)</option>
+                <option>ershouche_dealers (89 行)</option>
+              </select>
+              <input class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 flex-1 bg-transparent" placeholder="按字段搜索（title=宝马, price&gt;10w）..." />
+              <button class="text-xs px-3 py-1 rounded" style="background:var(--accent-bg);color:var(--accent);">导出 Excel</button>
+              <button class="text-xs px-3 py-1 rounded border border-[color:var(--border-strong)]">导出 JSON</button>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[color:var(--text-3)] text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium w-16">car_id</th>
+                    <th class="text-left px-4 py-2 font-medium">title</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">price</th>
+                    <th class="text-left px-4 py-2 font-medium w-14">year</th>
+                    <th class="text-left px-4 py-2 font-medium w-24">mileage</th>
+                    <th class="text-left px-4 py-2 font-medium w-16">city</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">image</th>
+                    <th class="text-left px-4 py-2 font-medium w-28">crawled_at</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[color:var(--border)]">
+                  <tr v-for="d in dataRows" :key="d.id" class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{d.id}}</td>
+                    <td class="px-4 py-2.5 truncate max-w-xs">{{d.title}}</td>
+                    <td class="px-4 py-2.5 font-medium" style="color:var(--err);">&yen;{{d.price}}w</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{d.year}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{d.mileage}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{d.city}}</td>
+                    <td class="px-4 py-2.5"><div class="w-10 h-8 placeholder rounded text-[10px] flex items-center justify-center text-[color:var(--text-3)]">img</div></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{d.time}}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Page 4: ProxyPool -->
+          <div v-else-if="current==='proxy'" class="space-y-4">
+            <div class="grid grid-cols-4 gap-3">
+              <div v-for="p in proxyStats" :key="p.label" class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="text-xs text-[color:var(--text-2)] mb-1">{{p.label}}</div>
+                <div class="text-2xl font-medium" :style="{color:p.color}">{{p.value}}</div>
+              </div>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl px-4 py-3 flex items-center gap-3">
+              <span class="text-xs text-[color:var(--text-2)]">服务商</span>
+              <select class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 bg-transparent"><option>巨量HTTP (juliang)</option></select>
+              <button class="text-xs px-3 py-1 rounded" style="background:var(--accent-bg);color:var(--accent);">手动拉取 10 个 IP</button>
+              <button class="text-xs px-3 py-1 rounded border border-[color:var(--border-strong)]">立即健康检查</button>
+              <div class="ml-auto text-[11px] text-[color:var(--text-3)]">下次健康检查: 4m23s</div>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[color:var(--text-3)] text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium">IP:Port</th>
+                    <th class="text-left px-4 py-2 font-medium w-16">城市</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">状态</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">使用次数</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">失败次数</th>
+                    <th class="text-left px-4 py-2 font-medium w-32">过期时间</th>
+                    <th class="text-left px-4 py-2 font-medium w-24">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[color:var(--border)]">
+                  <tr v-for="p in proxyRows" :key="p.ip" class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 font-mono">{{p.ip}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{p.city}}</td>
+                    <td class="px-4 py-2.5"><span class="pill" :class="p.sc">{{p.status}}</span></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{p.use}}/3</td>
+                    <td class="px-4 py-2.5" :style="{color:p.fail>0?'var(--err)':'var(--text-2)'}">{{p.fail}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{p.expire}}</td>
+                    <td class="px-4 py-2.5"><a style="color:var(--accent);">详情</a><span class="mx-1">·</span><a style="color:var(--err);">淘汰</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Page 5: CaptchaLog -->
+          <div v-else-if="current==='captcha'" class="space-y-4">
+            <div class="grid grid-cols-4 gap-3">
+              <div v-for="c in captchaStats" :key="c.label" class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="text-xs text-[color:var(--text-2)] mb-1">{{c.label}}</div>
+                <div class="text-2xl font-medium" :style="{color:c.color}">{{c.value}}</div>
+              </div>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[color:var(--text-3)] text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium w-32">触发时间</th>
+                    <th class="text-left px-4 py-2 font-medium">URL</th>
+                    <th class="text-left px-4 py-2 font-medium w-24">IP</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">策略</th>
+                    <th class="text-left px-4 py-2 font-medium w-14">尝试</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">结果</th>
+                    <th class="text-left px-4 py-2 font-medium w-20">耗时</th>
+                    <th class="text-left px-4 py-2 font-medium w-14">截图</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[color:var(--border)]">
+                  <tr v-for="c in captchaRows" :key="c.id" class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{c.time}}</td>
+                    <td class="px-4 py-2.5 truncate max-w-xs">{{c.url}}</td>
+                    <td class="px-4 py-2.5 font-mono text-[color:var(--text-2)]">{{c.ip}}</td>
+                    <td class="px-4 py-2.5"><span class="pill" :class="c.scc">{{c.strategy}}</span></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-2)]">{{c.attempt}}</td>
+                    <td class="px-4 py-2.5"><span class="pill" :class="c.rc">{{c.result}}</span></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{c.duration}}</td>
+                    <td class="px-4 py-2.5"><a style="color:var(--accent);">查看</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Page 6: Config -->
+          <div v-else-if="current==='config'" class="space-y-4">
+            <div class="flex gap-1 border-b border-[color:var(--border)]">
+              <button v-for="(c,i) in configCats" :key="c" @click="configCat=i"
+                :class="['text-xs px-3 py-2 -mb-px border-b-2',configCat===i?'border-[color:var(--accent)] text-[color:var(--accent)] font-medium':'border-transparent text-[color:var(--text-2)]']">
+                {{c}}
+              </button>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl overflow-hidden">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-[color:var(--text-3)] text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th class="text-left px-4 py-2 font-medium">key</th>
+                    <th class="text-left px-4 py-2 font-medium">value</th>
+                    <th class="text-left px-4 py-2 font-medium">说明</th>
+                    <th class="text-left px-4 py-2 font-medium w-36">更新时间</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[color:var(--border)]">
+                  <tr v-for="cfg in configRows" :key="cfg.key" class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 font-mono text-[color:var(--text-2)]">{{cfg.key}}</td>
+                    <td class="px-4 py-2.5"><input :type="cfg.type" :value="cfg.value" class="text-xs border border-[color:var(--border)] rounded px-2 py-1 w-full bg-transparent font-mono" /></td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{cfg.desc}}</td>
+                    <td class="px-4 py-2.5 text-[color:var(--text-3)]">{{cfg.updated}}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="px-4 py-3 border-t border-[color:var(--border)] flex justify-between items-center">
+                <span class="text-[11px] text-[color:var(--text-3)]">&cross; 配置改动立即生效，危险参数需二次确认</span>
+                <div class="flex gap-2">
+                  <button class="text-xs px-3 py-1 rounded border border-[color:var(--border-strong)]">重置默认</button>
+                  <button class="text-xs px-3 py-1 rounded text-white" style="background:var(--accent);">保存全部</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Page 7: Parsers -->
+          <div v-else-if="current==='parsers'" class="space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+              <div v-for="p in parserList" :key="p.name" class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4">
+                <div class="flex justify-between items-start mb-2">
+                  <div>
+                    <div class="text-sm font-medium">{{p.name}}</div>
+                    <div class="text-[11px] text-[color:var(--text-3)] font-mono">{{p.pattern}}</div>
+                  </div>
+                  <span class="pill" :class="p.enabled?'badge-ok':'badge-warn'">{{p.enabled?'已启用':'已禁用'}}</span>
+                </div>
+                <div class="text-xs text-[color:var(--text-2)] mb-3">{{p.desc}}</div>
+                <div class="flex gap-4 text-[11px] text-[color:var(--text-3)] mb-3">
+                  <span>表: <code class="bg-gray-100 px-1 rounded">{{p.table}}</code></span>
+                  <span>字段: {{p.fields}}</span>
+                  <span>已抓: {{p.count}}</span>
+                </div>
+                <div class="flex gap-2">
+                  <button class="text-[11px] px-2 py-1 rounded border border-[color:var(--border-strong)]">查看代码</button>
+                  <button class="text-[11px] px-2 py-1 rounded border border-[color:var(--border-strong)]">{{p.enabled?'禁用':'启用'}}</button>
+                  <button class="text-[11px] px-2 py-1 rounded" style="background:var(--accent-bg);color:var(--accent);">测试 URL</button>
+                </div>
+              </div>
+            </div>
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl p-4 border-dashed">
+              <div class="text-sm font-medium mb-2">+ 注册新 Parser</div>
+              <div class="text-xs text-[color:var(--text-2)]">把 .py 文件放到 <code class="bg-gray-100 px-1 rounded">parser/plugins/</code> 目录，启动时自动扫描注册。</div>
+              <button class="mt-3 text-xs px-3 py-1 rounded" style="background:var(--accent-bg);color:var(--accent);">重新扫描 plugins 目录</button>
+            </div>
+          </div>
+
+          <!-- Page 8: Logs -->
+          <div v-else-if="current==='logs'" class="space-y-4">
+            <div class="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-xl px-4 py-3 flex items-center gap-3">
+              <span class="text-xs text-[color:var(--text-2)]">级别</span>
+              <label class="text-xs flex items-center gap-1"><input type="checkbox" checked> INFO</label>
+              <label class="text-xs flex items-center gap-1 ml-2"><input type="checkbox" checked> DEBUG</label>
+              <label class="text-xs flex items-center gap-1 ml-2"><input type="checkbox" checked> WARN</label>
+              <label class="text-xs flex items-center gap-1 ml-2"><input type="checkbox" checked> ERROR</label>
+              <span class="text-xs ml-4">模块</span>
+              <select class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 bg-transparent"><option>全部</option></select>
+              <input class="text-xs border border-[color:var(--border-strong)] rounded px-2 py-1 flex-1 bg-transparent" placeholder="搜索日志..." />
+              <label class="text-xs flex items-center gap-1"><input type="checkbox" checked> 自动滚动</label>
+              <button class="text-xs px-3 py-1 rounded border border-[color:var(--border-strong)]">清空</button>
+            </div>
+            <div class="log-console rounded-xl p-4 font-mono text-xs leading-relaxed h-96 overflow-y-auto">
+              <div v-for="l in logRows" :key="l.id" class="flex gap-3">
+                <span class="text-gray-500 flex-shrink-0">{{l.time}}</span>
+                <span class="flex-shrink-0 w-12" :style="{color:l.lc}">{{l.level}}</span>
+                <span class="text-gray-400 flex-shrink-0 w-40 truncate">{{l.module}}</span>
+                <span class="text-gray-200 flex-1">{{l.msg}}</span>
+              </div>
+              <div class="text-green-400 mt-2 animate-pulse">&block;</div>
+            </div>
+          </div>
+
+        </div>
+      </transition>
+    </div>
+
+    <footer class="h-7 border-t border-[color:var(--border)] bg-[color:var(--surface)] flex items-center px-4 text-[10px] text-[color:var(--text-3)] gap-4 flex-shrink-0">
+      <span>WebSocket: <span style="color:var(--ok);">已连接</span></span>
+      <span>延迟: 23ms</span>
+      <span>最后同步: 2 秒前</span>
+      <span class="ml-auto">&copy; 58 爬虫管理后台 · 仅本机 127.0.0.1</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+const {createApp,ref,computed}=Vue;
+createApp({
+  setup(){
+    const tabs=[
+      {id:'dashboard',name:'Dashboard',desc:'总览 · 实时指标和任务流水'},
+      {id:'queue',name:'任务队列',desc:'queue 表 · 状态机驱动的 URL 队列'},
+      {id:'data',name:'数据浏览',desc:'Parser 业务表 · 查询/导出'},
+      {id:'proxy',name:'IP 池',desc:'proxy_pool 表 · 代理 IP 生命周期'},
+      {id:'captcha',name:'验证码日志',desc:'captcha_log 表 · 接码记录'},
+      {id:'config',name:'配置',desc:'config 表 · 运行时可调参数'},
+      {id:'parsers',name:'Parser 管理',desc:'插件注册表 · 启用/禁用/测试'},
+      {id:'logs',name:'实时日志',desc:'WebSocket 推送 · run.log + error.log'}
+    ];
+    const current=ref('dashboard');
+    const activeTab=computed(()=>tabs.find(t=>t.id===current.value));
+    const configCat=ref(0);
+    const configCats=['代理IP','反爬 &amp; 限速','验证码','系统'];
+
+    // Mock data
+    const statusText='爬虫运行中';
+    const statusColor='#1d9e75';
+
+    const metrics=[
+      {label:'今日抓取',value:'1,247',trend:'+82 较昨日',trendColor:'#1d9e75'},
+      {label:'成功率',value:'94.2%',trend:'失败 58 · 阻塞 14',trendColor:'#888780'},
+      {label:'队列长度',value:'328',trend:'pending 312 · retry 16',trendColor:'#888780'},
+      {label:'IP 池可用',value:'12 / 15',trend:'3 个冷却中',trendColor:'#ba7517'}
+    ];
+
+    const flows=[
+      {color:'#1d9e75',text:'ershouche_list · /ershouche/p2/',time:'2 秒前 · 12 条数据'},
+      {color:'#e24b4a',text:'detail · /ershouche/1248...',time:'14 秒前 · 验证码触发'},
+      {color:'#ba7517',text:'detail · /ershouche/1247...',time:'28 秒前 · 解析失败'},
+      {color:'#1d9e75',text:'ershouche_list · /ershouche/p1/',time:'45 秒前 · 15 条数据'},
+      {color:'#1d9e75',text:'detail · /ershouche/1246...',time:'1 分前 · 完成'}
+    ];
+
+    const queueStats=[
+      {name:'pending',count:312,color:'#5f5e5a'},
+      {name:'running',count:3,color:'#378add'},
+      {name:'done',count:1247,color:'#1d9e75'},
+      {name:'failed',count:58,color:'#ba7517'},
+      {name:'blocked',count:14,color:'#a32d2d'},
+      {name:'skipped',count:23,color:'#888780'}
+    ];
+
+    const queueRows=[
+      {url:'https://58.com/ershouche/p2/',parser:'ershouche_list',status:'done',sc:'badge-ok',retry:0,switch:0,error:''},
+      {url:'https://58.com/ershouche/124851...',parser:'ershouche_detail',status:'blocked',sc:'badge-err',retry:2,switch:5,error:'ip_switch_limit'},
+      {url:'https://58.com/ershouche/124726...',parser:'ershouche_detail',status:'failed',sc:'badge-warn',retry:3,switch:0,error:'parse_error'},
+      {url:'https://58.com/ershouche/p3/',parser:'ershouche_list',status:'running',sc:'badge-info',retry:0,switch:0,error:''},
+      {url:'https://58.com/ershouche/124620...',parser:'ershouche_detail',status:'pending',sc:'badge-purple',retry:0,switch:0,error:''}
+    ];
+
+    const dataRows=[
+      {id:'124851',title:'2019款 宝马5系 530Li M运动套装',price:'32.8',year:2019,mileage:'3.2万公里',city:'北京',time:'2 分前'},
+      {id:'124726',title:'2020款 奔驰C260L 运动版',price:'25.5',year:2020,mileage:'2.8万公里',city:'上海',time:'14 分前'},
+      {id:'124620',title:'2018款 奥迪A6L 45 TFSI',price:'28.9',year:2018,mileage:'5.6万公里',city:'广州',time:'32 分前'},
+      {id:'124515',title:'2021款 大众迈腾 380TSI',price:'18.6',year:2021,mileage:'1.5万公里',city:'北京',time:'1 小时前'},
+      {id:'124408',title:'2017款 丰田凯美瑞 2.5G 豪华版',price:'12.8',year:2017,mileage:'8.0万公里',city:'深圳',time:'2 小时前'}
+    ];
+
+    const proxyStats=[
+      {label:'池总数',value:'15',color:''},
+      {label:'可用 idle',value:'12',color:'#1d9e75'},
+      {label:'冷却中',value:'3',color:'#ba7517'},
+      {label:'已淘汰',value:'8',color:'#a32d2d'}
+    ];
+
+    const proxyRows=[
+      {ip:'117.68.123.45:4780',city:'北京',status:'idle',sc:'badge-ok',use:2,fail:0,expire:'58秒'},
+      {ip:'221.226.77.88:3399',city:'上海',status:'in_use',sc:'badge-info',use:1,fail:0,expire:'3分24秒'},
+      {ip:'182.34.55.12:2100',city:'广州',status:'cooldown',sc:'badge-warn',use:3,fail:2,expire:'12分',cooldown:'28分'},
+      {ip:'45.78.199.33:5555',city:'深圳',status:'idle',sc:'badge-ok',use:0,fail:0,expire:'4分51秒'},
+      {ip:'103.44.221.67:1180',city:'北京',status:'dead',sc:'badge-err',use:3,fail:4,expire:'—'}
+    ];
+
+    const captchaStats=[
+      {label:'今日触发',value:'23',color:''},
+      {label:'自动通过',value:'15',color:'#1d9e75'},
+      {label:'换IP通过',value:'6',color:'#534ab7'},
+      {label:'转人工',value:'2',color:'#a32d2d'}
+    ];
+
+    const captchaRows=[
+      {id:1,time:'11:24:18',url:'/ershouche/12485...',ip:'117.68.123.45',strategy:'auto',scc:'badge-info',attempt:2,result:'success',rc:'badge-ok',duration:'4.2s'},
+      {id:2,time:'11:18:42',url:'/ershouche/12472...',ip:'221.226.77.88',strategy:'switch_ip',scc:'badge-purple',attempt:5,result:'switched_ip',rc:'badge-purple',duration:'23.1s'},
+      {id:3,time:'11:02:15',url:'/ershouche/12453...',ip:'182.34.55.12',strategy:'auto',scc:'badge-info',attempt:3,result:'failed',rc:'badge-err',duration:'12.8s'},
+      {id:4,time:'10:45:33',url:'/ershouche/12441...',ip:'45.78.199.33',strategy:'manual',scc:'badge-warn',attempt:0,result:'manual',rc:'badge-warn',duration:'—'}
+    ];
+
+    const configRows=[
+      {key:'proxy_enabled',value:'true',type:'text',desc:'是否启用代理',updated:'2 小时前'},
+      {key:'proxy_api_url',value:'https://d.juliangip.com/...',type:'text',desc:'巨量HTTP提取URL',updated:'昨天'},
+      {key:'proxy_fetch_num',value:'10',type:'number',desc:'每次拉取IP数量',updated:'1 周前'},
+      {key:'proxy_max_use',value:'3',type:'number',desc:'单IP最多使用次数',updated:'1 周前'},
+      {key:'request_concurrency',value:'3',type:'number',desc:'全局并发数',updated:'2 小时前'},
+      {key:'request_timeout',value:'30',type:'number',desc:'请求超时秒',updated:'1 周前'},
+      {key:'captcha_auto_solve',value:'true',type:'text',desc:'自动接码开关',updated:'昨天'},
+      {key:'captcha_max_switch',value:'5',type:'number',desc:'单URL最多换IP',updated:'1 周前'},
+      {key:'log_level',value:'INFO',type:'text',desc:'日志级别 INFO/DEBUG',updated:'2 小时前'}
+    ];
+
+    const parserList=[
+      {name:'ErshoucheListParser',pattern:'58\\.com/ershouche/?$',desc:'58二手车列表页：提取车辆标题、价格（字体解密）、年份、里程、URL',table:'ershouche_cars',fields:6,count:1247,enabled:true},
+      {name:'ErshoucheDetailParser',pattern:'58\\.com/ershouche/\\d+',desc:'58二手车详情页：提取详细参数、卖家描述、联系电话',table:'ershouche_cars',fields:8,count:312,enabled:true}
+    ];
+
+    const logRows=[
+      {id:1,time:'11:25:01',level:'INFO',lc:'#1d9e75',module:'crawler.scheduler',msg:'取到URL: /ershouche/p3/, parser: ershouche_list'},
+      {id:2,time:'11:24:58',level:'INFO',lc:'#1d9e75',module:'crawler.request_pool',msg:'请求 /ershouche/124851..., IP: 117.68.123.45:4780, 第1次'},
+      {id:3,time:'11:24:55',level:'DEBUG',lc:'#888780',module:'crawler.interceptor',msg:'缓存命中: script https://58.com/static/app.js'},
+      {id:4,time:'11:24:52',level:'WARN',lc:'#ba7517',module:'crawler.captcha',msg:'触发: /ershouche/124726..., IP: 221.226.77.88:3399, 策略: auto'},
+      {id:5,time:'11:24:48',level:'ERROR',lc:'#a32d2d',module:'crawler.request_pool',msg:'网络错误: /ershouche/124411..., connect timeout'},
+      {id:6,time:'11:24:45',level:'INFO',lc:'#1d9e75',module:'crawler.parser',msg:'Parser:ershouche_list 提取数据: 15条, 新URL: 30个'},
+      {id:7,time:'11:24:41',level:'INFO',lc:'#1d9e75',module:'crawler.proxy',msg:'拉取10个IP, 有效: 10, 已入池'},
+      {id:8,time:'11:24:38',level:'DEBUG',lc:'#888780',module:'crawler.interceptor',msg:'放行: xhr https://58.com/api/...'},
+      {id:9,time:'11:24:35',level:'INFO',lc:'#1d9e75',module:'crawler.scheduler',msg:'队列空, 等待10秒'}
+    ];
+
+    return{
+      tabs,current,activeTab,
+      statusText,statusColor,
+      metrics,flows,
+      queueStats,queueRows,
+      dataRows,
+      proxyStats,proxyRows,
+      captchaStats,captchaRows,
+      configCat,configCats,configRows,
+      parserList,
+      logRows
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "test_parser_direct (browser)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test_parser_direct.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--fetch-mode", "browser", "--keep-db", "--timeout", "30"],
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONUNBUFFERED": "1" },
+            "justMyCode": false
+        },
+        {
+            "name": "test_parser_direct (browser + show)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test_parser_direct.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--fetch-mode", "browser", "--show-browser", "--keep-db", "--timeout", "30"],
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONUNBUFFERED": "1" },
+            "justMyCode": false
+        },
+        {
+            "name": "test_parser_direct (http)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test_parser_direct.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--fetch-mode", "http", "--keep-db"],
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONUNBUFFERED": "1" },
+            "justMyCode": false
+        },
+        {
+            "name": "test_parser_direct (custom url)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/test_parser_direct.py",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "args": ["--fetch-mode", "browser", "--keep-db", "--url", "https://jianyangshi.58.com/shengyizr/"],
+            "cwd": "${workspaceFolder}",
+            "env": { "PYTHONUNBUFFERED": "1" },
+            "justMyCode": false
+        }
+    ]
+}

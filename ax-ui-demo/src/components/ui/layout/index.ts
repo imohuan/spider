@@ -1,0 +1,6 @@
+export { default as ConsoleLayout } from './ConsoleLayout.vue'
+export { default as ComponentsView } from './ComponentsView.vue'
+export { default as SettingsView } from './SettingsView.vue'
+export { default as SettingsDialog } from './SettingsDialog.vue'
+export { default as DemoView } from './DemoView.vue'
+export type { AppSettings } from './SettingsView.vue'
