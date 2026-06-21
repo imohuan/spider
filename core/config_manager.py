@@ -27,48 +27,48 @@ logger = get_logger("config")
 # 顺序与文档表格一致，便于人工对照
 _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     # --- 代理 ---
-    ("proxy_enabled", "true", "是否启用代理"),
-    ("proxy_provider", "juliang", "代理服务商:juliang/kuaidaili"),
-    ("proxy_api_url", "", "巨量HTTP API提取URL"),
-    ("proxy_fetch_num", "10", "每次拉取IP数量"),
-    ("proxy_ttl", "60", "IP有效期秒数"),
-    ("proxy_max_use", "3", "单IP最多使用次数"),
-    ("proxy_health_interval", "300", "健康检查间隔秒"),
+    ("proxy_enabled", "true", "启用后所有请求优先走代理池，关闭则直连"),
+    ("proxy_provider", "juliang", "代理服务商，当前支持巨量(juliang)和快代理(kuaidaili)"),
+    ("proxy_api_url", "", "巨量HTTP API提取链接，格式如 http://api.juliangip.com/v1/..."),
+    ("proxy_fetch_num", "10", "每次从代理API拉取的IP数量，建议 5~20"),
+    ("proxy_ttl", "60", "单个IP的有效期(秒)，到期后自动释放"),
+    ("proxy_max_use", "3", "单个IP最多使用次数，达到后标记失效"),
+    ("proxy_health_interval", "300", "代理池健康检查间隔(秒)，定期剔除不可用IP"),
     # --- 缓存 ---
-    ("cache_enabled", "true", "是否启用静态资源缓存"),
-    ("cache_html_ttl", "86400", "HTML缓存有效期秒"),
+    ("cache_enabled", "true", "启用后重复请求同一URL直接走缓存，减少网络开销"),
+    ("cache_html_ttl", "86400", "HTML响应缓存有效期(秒)，默认86400即1天"),
     # --- 图片 ---
-    ("image_download", "true", "是否下载业务图片"),
+    ("image_download", "true", "是否下载列表/详情页中的商品图片到本地"),
     # --- 请求 ---
-    ("request_concurrency", "3", "全局并发数"),
-    ("request_interval_min", "1.0", "请求最小间隔秒"),
-    ("request_interval_max", "3.0", "请求最大间隔秒"),
-    ("request_timeout", "30", "请求超时秒"),
-    ("retry_network", "3", "网络错误重试次数"),
-    ("retry_5xx", "2", "5xx错误重试次数"),
-    ("retry_parse", "1", "解析失败重试次数"),
-    ("queue_max_retry", "3", "队列任务最大重试次数"),
-    ("domain_rate_limit", "10", "单域名每秒最大请求数"),
-    ("ip_rate_limit", "5", "单IP每分钟最大请求数"),
+    ("request_concurrency", "3", "同时处理的请求任务数，过大可能触发反爬"),
+    ("request_interval_min", "1.0", "两次请求之间的最小间隔(秒)，随机延迟的下限"),
+    ("request_interval_max", "3.0", "两次请求之间的最大间隔(秒)，随机延迟的上限"),
+    ("request_timeout", "30", "单次HTTP请求超时时间(秒)，超时后触发重试"),
+    ("retry_network", "3", "连接超时/DNS失败等网络错误的重试次数"),
+    ("retry_5xx", "2", "服务器返回5xx时的重试次数"),
+    ("retry_parse", "1", "HTML解析失败时的重试次数，对同一页面重抓"),
+    ("queue_max_retry", "3", "单个任务在队列中的最大重试次数，超出后标记失败"),
+    ("domain_rate_limit", "10", "同一域名每秒最多发送的请求数，防止被封"),
+    ("ip_rate_limit", "5", "同一出口IP每分钟最多请求数，配合代理池使用"),
     # --- 并发控制 ---
-    ("crawler_max_running", "3", "URL队列最大并发 running 数"),
-    ("image_download_concurrency", "5", "图片下载并发数"),
-    ("image_download_poll_sec", "5", "图片队列轮询间隔秒"),
-    ("image_download_batch", "10", "图片队列每批拉取数"),
+    ("crawler_max_running", "3", "允许同时处于running状态的队列任务上限"),
+    ("image_download_concurrency", "5", "图片下载Worker线程数，增大可加速下载"),
+    ("image_download_poll_sec", "5", "图片下载队列的轮询间隔(秒)，检查是否有新任务"),
+    ("image_download_batch", "10", "每次从图片队列取出的批量任务数"),
     # --- 验证码 ---
-    ("captcha_enabled", "true", "是否处理验证码"),
-    ("captcha_auto_solve", "true", "是否自动接码"),
-    ("captcha_max_retry", "3", "自动接码重试次数"),
-    ("captcha_fallback", "manual", "降级策略:manual/switch_ip"),
-    ("captcha_max_switch", "5", "换IP模式单URL最多换IP次数"),
-    ("captcha_cooldown", "1800", "触发验证码后IP冷却秒"),
+    ("captcha_enabled", "true", "启用验证码检测与处理流程"),
+    ("captcha_auto_solve", "true", "启用后自动调用OCR识别验证码，关闭则标记待人工处理"),
+    ("captcha_max_retry", "3", "验证码识别失败后的自动重试次数"),
+    ("captcha_fallback", "manual", "验证码多次失败后的降级策略：手动处理(manual)或换IP重试(switch_ip)"),
+    ("captcha_max_switch", "5", "换IP模式下单个URL最多切换IP的次数"),
+    ("captcha_cooldown", "1800", "触发验证码后该IP的冷却时间(秒)，冷却期内不使用"),
     # --- 日志 ---
-    ("log_level", "INFO", "日志级别:INFO/DEBUG"),
+    ("log_level", "INFO", "日志级别，DEBUG可看到完整请求响应内容"),
     # --- HTTP 模式 ---
-    ("fetch_mode", "browser", "默认抓取模式:browser/http"),
-    ("http_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "HTTP模式默认UA"),
-    ("http_default_headers", "{}", "HTTP模式默认headers(JSON)"),
-    ("http_follow_redirects", "true", "HTTP模式是否跟随重定向"),
+    ("fetch_mode", "browser", "默认抓取模式：browser(Playwright浏览器) 或 http(直连httpx)，推荐http避免反爬检测"),
+    ("http_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "HTTP直连模式使用的User-Agent请求头"),
+    ("http_default_headers", "{}", "HTTP模式默认附加请求头，JSON格式，如 {\"Referer\":\"https://58.com\"}"),
+    ("http_follow_redirects", "true", "HTTP模式是否自动跟随301/302重定向"),
 ]
 
 # 真值字符串集合（小写）—— 与假值集合互斥
@@ -123,6 +123,17 @@ class ConfigManager:
                     (key, value, description),
                 )
         logger.debug(f"init_defaults 完成，共 {len(_DEFAULT_CONFIGS)} 项")
+
+    def reset_all(self) -> None:
+        """强制重置所有配置为默认值（覆盖已有值），用于 UI 重置按钮。"""
+        with self.storage.get_connection() as conn:
+            conn.execute("DELETE FROM config")
+            for key, value, description in _DEFAULT_CONFIGS:
+                conn.execute(
+                    "INSERT INTO config (key, value, description) VALUES (?, ?, ?)",
+                    (key, value, description),
+                )
+        logger.info(f"reset_all 完成，共 {len(_DEFAULT_CONFIGS)} 项")
 
     # ---------------- 读 ----------------
 

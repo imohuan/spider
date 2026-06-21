@@ -18,32 +18,46 @@ interface ConfigItem {
 }
 
 const LABEL_MAP: Record<string, string> = {
-  proxy_enabled: '启用代理', proxy_provider: '代理服务商', proxy_api_url: 'API 提取 URL',
-  proxy_fetch_num: '每次拉取数', proxy_ttl: 'IP 有效期(秒)', proxy_max_use: '单 IP 最大使用次数',
+  // 代理
+  proxy_enabled: '启用代理', proxy_provider: '代理服务商', proxy_api_url: 'API 提取链接',
+  proxy_fetch_num: '每次拉取 IP 数', proxy_ttl: 'IP 有效期(秒)', proxy_max_use: '单 IP 最大使用次数',
   proxy_health_interval: '健康检查间隔(秒)',
-  cache_enabled: '启用静态缓存', cache_html_ttl: 'HTML 缓存有效期(秒)',
-  image_download: '下载业务图片',
-  request_concurrency: '全局并发数', request_interval_min: '最小间隔(秒)',
-  request_interval_max: '最大间隔(秒)', request_timeout: '请求超时(秒)',
-  retry_network: '网络重试次数', retry_5xx: '5xx 重试次数',
-  domain_rate_limit: '单域名速率(/s)', ip_rate_limit: '单 IP 速率(/min)',
-  captcha_enabled: '处理验证码', captcha_auto_solve: '自动接码',
-  captcha_max_retry: '接码重试次数', captcha_fallback: '降级策略',
-  captcha_max_switch: '最多换 IP 次数', captcha_cooldown: 'IP 冷却(秒)',
-  log_level: '日志级别',
+  // 缓存
+  cache_enabled: '启用缓存', cache_html_ttl: 'HTML 缓存有效期(秒)',
+  // 图片
+  image_download: '下载商品图片', image_download_concurrency: '图片下载并发数',
+  image_download_poll_sec: '图片队列轮询间隔(秒)', image_download_batch: '图片每批拉取数',
+  // 请求
+  request_concurrency: '全局并发数', request_interval_min: '最小请求间隔(秒)',
+  request_interval_max: '最大请求间隔(秒)', request_timeout: '请求超时(秒)',
+  retry_network: '网络错误重试次数', retry_5xx: '5xx 重试次数', retry_parse: '解析失败重试次数',
+  queue_max_retry: '任务最大重试次数',
+  domain_rate_limit: '单域名速率限制(/s)', ip_rate_limit: '单 IP 速率限制(/min)',
+  crawler_max_running: '最大并发任务数',
+  // 验证码
+  captcha_enabled: '启用验证码处理', captcha_auto_solve: '自动识别验证码',
+  captcha_max_retry: '识别重试次数', captcha_fallback: '失败降级策略',
+  captcha_max_switch: '最多换 IP 次数', captcha_cooldown: 'IP 冷却时间(秒)',
+  // 系统
+  log_level: '日志级别', fetch_mode: '默认抓取模式',
+  http_user_agent: 'HTTP User-Agent', http_default_headers: 'HTTP 默认 Headers',
+  http_follow_redirects: '跟随重定向',
 }
 
-const BOOL_KEYS = new Set(['proxy_enabled', 'cache_enabled', 'image_download', 'captcha_enabled', 'captcha_auto_solve'])
+const BOOL_KEYS = new Set(['proxy_enabled', 'cache_enabled', 'image_download', 'captcha_enabled', 'captcha_auto_solve', 'http_follow_redirects'])
 const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   proxy_provider: [{ value: 'juliang', label: '巨量' }, { value: 'kuaidaili', label: '快代理' }],
   log_level: [{ value: 'INFO', label: 'INFO' }, { value: 'DEBUG', label: 'DEBUG' }],
   captcha_fallback: [{ value: 'manual', label: '手动处理' }, { value: 'switch_ip', label: '换 IP' }],
+  fetch_mode: [{ value: 'browser', label: 'browser' }, { value: 'http', label: 'http' }],
 }
+const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers'])
 
 function inferType(key: string): ConfigType {
   if (BOOL_KEYS.has(key)) return 'bool'
   if (key in SELECT_OPTIONS) return 'select'
-  return 'number'  // body 25 项中 bool/select 之外全是 number；proxy_api_url 在默认里为空但也是 text，作为特例处理
+  if (TEXT_KEYS.has(key)) return 'text'
+  return 'number'
 }
 
 // ---- 数据 ----
@@ -66,17 +80,20 @@ const loadConfigs = async () => {
 
 // ---- 分类 & Tab ----
 const activeTab = ref(0)
-const tabs = ['代理IP', '反爬限速', '验证码', '系统']
+const tabs = ['代理IP', '请求与缓存', '图片下载', '验证码', '系统']
 
-const CATEGORY_RULES: Array<(key: string) => boolean> = [
-  k => k.startsWith('proxy_'),
-  k => k.startsWith('request_') || k.startsWith('cache_') || k.startsWith('image_'),
-  k => k.startsWith('captcha_'),
-  () => true,  // 兜底
-]
+const CATEGORY_MAP: Record<number, string[]> = {
+  0: ['proxy_enabled', 'proxy_provider', 'proxy_api_url', 'proxy_fetch_num', 'proxy_ttl', 'proxy_max_use', 'proxy_health_interval'],
+  1: ['cache_enabled', 'cache_html_ttl', 'request_concurrency', 'request_interval_min', 'request_interval_max', 'request_timeout', 'retry_network', 'retry_5xx', 'retry_parse', 'queue_max_retry', 'domain_rate_limit', 'ip_rate_limit', 'crawler_max_running'],
+  2: ['image_download', 'image_download_concurrency', 'image_download_poll_sec', 'image_download_batch'],
+  3: ['captcha_enabled', 'captcha_auto_solve', 'captcha_max_retry', 'captcha_fallback', 'captcha_max_switch', 'captcha_cooldown'],
+  4: ['log_level', 'fetch_mode', 'http_user_agent', 'http_default_headers', 'http_follow_redirects'],
+}
+
+const activeTabKeys = computed(() => new Set(CATEGORY_MAP[activeTab.value] || []))
 
 const filteredConfigs = computed(() =>
-  configs.value.filter(c => CATEGORY_RULES[activeTab.value](c.key))
+  configs.value.filter(c => activeTabKeys.value.has(c.key))
 )
 
 // ---- 操作 ----
@@ -137,6 +154,13 @@ onMounted(loadConfigs)
               v-model="cfg.value"
               size="lg"
               :options="SELECT_OPTIONS[cfg.key]"
+              @update:model-value="markDirty()"
+            />
+            <AxInput
+              v-else-if="cfg.type === 'text'"
+              v-model="cfg.value"
+              size="lg"
+              class="w-64"
               @update:model-value="markDirty()"
             />
             <AxInput
