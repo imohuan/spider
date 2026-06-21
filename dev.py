@@ -150,7 +150,7 @@ from web.api.crawler_control import init_scheduler
 init_scheduler(scheduler)
 
 # 开发模式：默认暂停状态，等用户从 UI 点击"启动"
-scheduler.pause()
+# scheduler.pause()
 
 def _run_scheduler() -> None:
     """后台运行爬虫调度器主循环。"""
