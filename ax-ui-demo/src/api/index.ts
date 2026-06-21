@@ -54,6 +54,8 @@ export const configApi = {
     body_type?: string
     body_content?: string
   }) => api.post('/config/test-url', payload),
+  /** 测试 AI 服务连接 */
+  testAi: () => api.post('/config/test-ai'),
 }
 
 export const logsApi = {

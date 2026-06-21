@@ -69,6 +69,11 @@ _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     ("http_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "HTTP直连模式使用的User-Agent请求头"),
     ("http_default_headers", "{}", "HTTP模式默认附加请求头，JSON格式，如 {\"Referer\":\"https://58.com\"}"),
     ("http_follow_redirects", "true", "HTTP模式是否自动跟随301/302重定向"),
+    # --- AI ---
+    ("ai_base_url", "", "AI API 地址，如 https://api.openai.com/v1"),
+    ("ai_api_key", "", "AI API 密钥，用于调用大模型"),
+    ("ai_model", "", "AI 模型名称，如 gpt-4o / deepseek-chat"),
+    ("ai_system_prompt", "", "AI 系统提示词，定义 AI 的角色和行为"),
 ]
 
 # 真值字符串集合（小写）—— 与假值集合互斥

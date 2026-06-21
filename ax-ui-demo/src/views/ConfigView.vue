@@ -6,7 +6,7 @@ import { useNotify } from '@/components/ui'
 const { triggerNotify } = useNotify()
 
 // ---- 类型推断 & 标签 ----
-type ConfigType = 'bool' | 'number' | 'select' | 'text'
+type ConfigType = 'bool' | 'number' | 'select' | 'text' | 'textarea'
 
 interface ConfigItem {
   key: string
@@ -42,6 +42,9 @@ const LABEL_MAP: Record<string, string> = {
   log_level: '日志级别', fetch_mode: '默认抓取模式',
   http_user_agent: 'HTTP User-Agent', http_default_headers: 'HTTP 默认 Headers',
   http_follow_redirects: '跟随重定向',
+  // AI
+  ai_base_url: 'AI 基础地址', ai_api_key: 'AI Key', ai_model: 'AI 模型',
+  ai_system_prompt: '系统提示词',
 }
 
 const BOOL_KEYS = new Set(['proxy_enabled', 'cache_enabled', 'image_download', 'captcha_enabled', 'captcha_auto_solve', 'http_follow_redirects'])
@@ -51,12 +54,14 @@ const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
   captcha_fallback: [{ value: 'manual', label: '手动处理' }, { value: 'switch_ip', label: '换 IP' }],
   fetch_mode: [{ value: 'browser', label: 'browser' }, { value: 'http', label: 'http' }],
 }
-const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers'])
+const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers', 'ai_base_url', 'ai_api_key', 'ai_model'])
+const TEXTAREA_KEYS = new Set(['ai_system_prompt'])
 
 function inferType(key: string): ConfigType {
   if (BOOL_KEYS.has(key)) return 'bool'
   if (key in SELECT_OPTIONS) return 'select'
   if (TEXT_KEYS.has(key)) return 'text'
+  if (TEXTAREA_KEYS.has(key)) return 'textarea'
   return 'number'
 }
 
@@ -80,7 +85,7 @@ const loadConfigs = async () => {
 
 // ---- 分类 & Tab ----
 const activeTab = ref(0)
-const tabs = ['代理IP', '请求与缓存', '图片下载', '验证码', '系统']
+const tabs = ['代理IP', '请求与缓存', '图片下载', '验证码', '系统', 'AI']
 
 const CATEGORY_MAP: Record<number, string[]> = {
   0: ['proxy_enabled', 'proxy_provider', 'proxy_api_url', 'proxy_fetch_num', 'proxy_ttl', 'proxy_max_use', 'proxy_health_interval'],
@@ -88,6 +93,7 @@ const CATEGORY_MAP: Record<number, string[]> = {
   2: ['image_download', 'image_download_concurrency', 'image_download_poll_sec', 'image_download_batch'],
   3: ['captcha_enabled', 'captcha_auto_solve', 'captcha_max_retry', 'captcha_fallback', 'captcha_max_switch', 'captcha_cooldown'],
   4: ['log_level', 'fetch_mode', 'http_user_agent', 'http_default_headers', 'http_follow_redirects'],
+  5: ['ai_base_url', 'ai_api_key', 'ai_model', 'ai_system_prompt'],
 }
 
 const activeTabKeys = computed(() => new Set(CATEGORY_MAP[activeTab.value] || []))
@@ -113,6 +119,23 @@ const doReset = async () => {
   try { await configApi.reset(); triggerNotify('已重置为默认值', 'success'); loadConfigs(); dirty.value = false } catch {}
 }
 
+const testingAi = ref(false)
+const testAi = async () => {
+  testingAi.value = true
+  try {
+    const res = await configApi.testAi()
+    if (res.ok) {
+      triggerNotify(`AI 连接成功 — ${res.model} — ${res.reply} (${res.duration_ms}ms)`, 'success')
+    } else {
+      triggerNotify(`AI 连接失败: ${res.error}`, 'error')
+    }
+  } catch {
+    triggerNotify('AI 连接测试失败', 'error')
+  } finally {
+    testingAi.value = false
+  }
+}
+
 onMounted(loadConfigs)
 </script>
 
@@ -132,45 +155,54 @@ onMounted(loadConfigs)
     <!-- Config rows -->
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
       <template v-if="filteredConfigs.length">
+        <!-- textarea 布局：标题在上，控件在下，全宽 -->
         <div
           v-for="cfg in filteredConfigs"
           :key="cfg.key"
-          class="flex items-center gap-ax-md px-4 py-ax-sm border-b border-outline-variant/50 last:border-b-0"
+          class="border-b border-outline-variant/50 last:border-b-0"
         >
-          <!-- 标题 + 描述 -->
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-primary">{{ cfg.label }}</p>
-            <p class="text-xs text-secondary mt-0.5">{{ cfg.desc }}</p>
+          <div v-if="cfg.type === 'textarea'" class="px-4 py-ax-sm space-y-ax-sm">
+            <div>
+              <p class="text-sm font-medium text-primary">{{ cfg.label }}</p>
+              <p class="text-xs text-secondary mt-0.5">{{ cfg.desc }}</p>
+            </div>
+            <AxInput v-model="cfg.value" size="lg" multiline :rows="5" class="w-full" @update:model-value="markDirty()" />
           </div>
-          <!-- UI 控件 -->
-          <div class="shrink-0">
-            <AxSwitch
-              v-if="cfg.type === 'bool'"
-              :model-value="cfg.value"
-              @update:model-value="cfg.value = $event; markDirty()"
-            />
-            <AxSelect
-              v-else-if="cfg.type === 'select'"
-              v-model="cfg.value"
-              size="lg"
-              :options="SELECT_OPTIONS[cfg.key]"
-              @update:model-value="markDirty()"
-            />
-            <AxInput
-              v-else-if="cfg.type === 'text'"
-              v-model="cfg.value"
-              size="lg"
-              class="w-64"
-              @update:model-value="markDirty()"
-            />
-            <AxInput
-              v-else
-              v-model="cfg.value"
-              size="lg"
-              type="number"
-              class="w-28"
-              @update:model-value="markDirty()"
-            />
+          <div v-else class="flex items-center gap-ax-md px-4 py-ax-sm">
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-primary">{{ cfg.label }}</p>
+              <p class="text-xs text-secondary mt-0.5">{{ cfg.desc }}</p>
+            </div>
+            <div class="shrink-0">
+              <AxSwitch
+                v-if="cfg.type === 'bool'"
+                :model-value="cfg.value"
+                @update:model-value="cfg.value = $event; markDirty()"
+              />
+              <AxSelect
+                v-else-if="cfg.type === 'select'"
+                v-model="cfg.value"
+                size="lg"
+                :options="SELECT_OPTIONS[cfg.key]"
+                @update:model-value="markDirty()"
+                style="width: 20rem"
+              />
+              <AxInput
+                v-else-if="cfg.type === 'text'"
+                v-model="cfg.value"
+                size="lg"
+                style="width: 20rem"
+                @update:model-value="markDirty()"
+              />
+              <AxInput
+                v-else
+                v-model="cfg.value"
+                size="lg"
+                type="number"
+                style="width: 20rem"
+                @update:model-value="markDirty()"
+              />
+            </div>
           </div>
         </div>
       </template>
@@ -179,7 +211,8 @@ onMounted(loadConfigs)
       <!-- Footer -->
       <div class="px-4 py-ax-sm border-t border-outline-variant flex justify-between items-center">
         <span class="text-[11px] text-secondary">{{ dirty ? '有未保存的修改' : '配置改动立即生效' }}</span>
-        <div class="flex gap-ax-sm">
+        <div class="flex gap-ax-sm items-center">
+          <AxButton v-if="activeTab === 5" variant="outline" size="lg" :loading="testingAi" @click="testAi">AI 连接测试</AxButton>
           <AxButton variant="outline" size="lg" @click="doReset">重置默认</AxButton>
           <AxButton variant="primary" size="lg" :disabled="!dirty" @click="doSave">保存全部</AxButton>
         </div>

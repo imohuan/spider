@@ -207,3 +207,84 @@ def _parse_cookies(cookie_str: str) -> dict:
             k, v = part.split("=", 1)
             result[k.strip()] = v.strip()
     return result
+
+
+@bp.route("/test-ai", methods=["POST"])
+def test_ai():
+    """测试 AI 服务连接 — 发送一个简单的 chat completion 请求。
+
+    从 config 表读取 ai_base_url / ai_api_key / ai_model，发一条 "reply 'pong'"
+    消息，验证配置是否正确。
+
+    Response::
+
+        {
+            "ok": true,
+            "model": "gpt-4o",
+            "reply": "pong",
+            "duration_ms": 1234,
+            "tokens": {"prompt": 10, "completion": 2}
+        }
+    """
+    import asyncio
+    import httpx
+
+    config_mgr = ConfigManager(Storage())
+    base_url = (config_mgr.get("ai_base_url") or "").strip().rstrip("/")
+    api_key = (config_mgr.get("ai_api_key") or "").strip()
+    model = (config_mgr.get("ai_model") or "").strip()
+
+    if not base_url:
+        return jsonify({"ok": False, "error": "AI Base URL 未配置"}), 400
+    if not api_key:
+        return jsonify({"ok": False, "error": "AI API Key 未配置"}), 400
+    if not model:
+        return jsonify({"ok": False, "error": "AI 模型未配置"}), 400
+
+    async def _do():
+        async with httpx.AsyncClient(timeout=30) as client:
+            t0 = time.perf_counter()
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "content": "reply only the word 'pong'"}
+                    ],
+                    "max_tokens": 5,
+                },
+            )
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            data = resp.json()
+
+            if resp.status_code != 200:
+                error_msg = data.get("error", {}).get("message", resp.text)
+                return {"ok": False, "error": f"{resp.status_code}: {error_msg}", "duration_ms": duration_ms}
+
+            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            usage = data.get("usage", {})
+            return {
+                "ok": True,
+                "model": data.get("model", model),
+                "reply": reply,
+                "duration_ms": duration_ms,
+                "tokens": {
+                    "prompt": usage.get("prompt_tokens", 0),
+                    "completion": usage.get("completion_tokens", 0),
+                },
+            }
+
+    try:
+        result = asyncio.run(_do())
+        return jsonify(result)
+    except httpx.ConnectError:
+        return jsonify({"ok": False, "error": f"无法连接到 {base_url}"}), 502
+    except httpx.TimeoutException:
+        return jsonify({"ok": False, "error": "请求超时（30s）"}), 504
+    except Exception as e:
+        logger.error(f"AI test failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"ok": False, "error": str(e)}), 500
