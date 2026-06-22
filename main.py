@@ -73,7 +73,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="显示浏览器窗口（调试用，覆盖 --headless）",
     )
     parser.add_argument(
-        "--fetch-mode", choices=["browser", "http"],
+        "--fetch-mode", choices=["browser", "http", "cdp"],
         default=None, help="抓取模式：browser（浏览器）/ http（直连），默认读取 config",
     )
     parser.add_argument(
@@ -139,6 +139,12 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
     from core.browser import CrawlerBrowser
     browser = CrawlerBrowser(config_mgr, headless=not args.show_browser)
 
+    # CDP 浏览器（仅在 fetch_mode=cdp 或 cdp_enabled=true 时初始化）
+    cdp_browser = None
+    if args.fetch_mode == "cdp" or config_mgr.get_bool("cdp_enabled", False):
+        from core.browser_cdp import CrawlerBrowserCDP
+        cdp_browser = CrawlerBrowserCDP(config_mgr)
+
     # 验证码处理器
     captcha_handler = CaptchaHandler(config_mgr, storage)
     tools.captcha_handler = captcha_handler
@@ -156,6 +162,7 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
         state_machine=state_machine,
         proxy_pool=proxy_pool,
         browser=browser,
+        cdp_browser=cdp_browser,
         captcha_handler=captcha_handler,
         image_downloader=tools.image_downloader,
         loop=event_loop,
@@ -176,6 +183,7 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
         "state_machine": state_machine,
         "proxy_pool": proxy_pool,
         "browser": browser,
+        "cdp_browser": cdp_browser,
         "captcha_handler": captcha_handler,
         "image_downloader": tools.image_downloader,
         "registry": registry,
@@ -239,6 +247,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         event_loop.run_until_complete(browser.start())
 
+        # CDP 模式下连接本地 Chrome
+        cdp_browser = components.get("cdp_browser")
+        if cdp_browser is not None:
+            try:
+                event_loop.run_until_complete(cdp_browser.connect())
+                logger.info(f"CDP 已连接本地 Chrome: {cdp_browser.endpoint}")
+            except Exception as e:
+                logger.error(f"CDP 连接失败: {e}")
+                cdp_browser = None
+
         # 图片下载队列 Worker（独立线程 + 专用事件循环，http/browser 模式都能消费）
         img_downloader = components["image_downloader"]
         img_storage = components["storage"]
@@ -264,6 +282,13 @@ def main(argv: list[str] | None = None) -> int:
                 event_loop.run_until_complete(browser.close())
             except Exception as e:
                 logger.warning(f"浏览器关闭异常（可忽略）: {e}")
+            # CDP 断开
+            cdp_browser = components.get("cdp_browser")
+            if cdp_browser is not None:
+                try:
+                    event_loop.run_until_complete(cdp_browser.disconnect())
+                except Exception as e:
+                    logger.warning(f"CDP 断开异常: {e}")
             # 取消所有待处理异步任务，避免 "Task was destroyed but it is pending!"
             cancel_all_tasks(event_loop, logger)
     finally:
