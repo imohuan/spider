@@ -773,11 +773,14 @@ class RequestPool:
         page = await self.browser.new_page(url=None)
 
         # Parser 生命周期钩子（goto 前注入 JS 脚本）
+        # show_window 调试模式时跳过守卫脚本，避免死循环
         on_page_created = getattr(parser, "on_page_created", None)
-        if on_page_created is not None:
+        if on_page_created is not None and not show_window:
             await on_page_created(page, url)
 
         timeout_ms = self.config.get_int("request_timeout", 30) * 1000
+        if show_window:
+            timeout_ms = max(timeout_ms, 60000)  # 调试模式至少 60s 超时
         await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
 
         # 调试：弹到前台方便观察
