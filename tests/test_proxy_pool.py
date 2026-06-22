@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -109,12 +109,38 @@ def test_acquire_disabled_returns_none(storage, cfg):
     assert p.acquire() is None
 
 
-def test_acquire_empty_pool_triggers_supplement(pool, mock_provider):
-    """空池 acquire 触发补充。"""
+def test_acquire_empty_pool_no_longer_triggers_supplement(pool, mock_provider):
+    """空池 acquire 不再同步触发补充（修复：避免阻塞事件循环）。"""
     rec = pool.acquire()
+    mock_provider.fetch.assert_not_called()
+    assert rec is None  # 池空直接返回 None
+
+
+def test_warmup_triggers_supplement(pool, mock_provider):
+    """warmup 冷启动同步预填充。"""
+    count = pool.warmup()
     mock_provider.fetch.assert_called_once()
+    assert count == 3  # 池空，需补 3 个（fetch_num=3），mock 返回 3 个
+    rec = pool.acquire()
     assert rec is not None
     assert rec.ip == "1.1.1.1"
+
+
+def test_warmup_skips_when_pool_sufficient(pool, storage, mock_provider):
+    """池中已有足够 IP 时 warmup 跳过。"""
+    # fetch_num 默认 3，插入 3 个使其达到阈值
+    for i in range(3):
+        _insert_ip(storage, f"10.0.0.{i}")
+    count = pool.warmup()
+    mock_provider.fetch.assert_not_called()
+    assert count == 0
+
+
+def test_warmup_disabled_returns_zero(storage, cfg):
+    """proxy_enabled=false 时 warmup 返回 0。"""
+    cfg.set("proxy_enabled", "false")
+    p = ProxyPool(storage, cfg, None)
+    assert p.warmup() == 0
 
 
 def test_acquire_marks_in_use(pool, storage):
@@ -295,6 +321,83 @@ def test_supplement_dedupes_by_ip_port(storage, cfg):
 # ---------------- stats ----------------
 
 
+def test_supplement_loop_fills_pool_when_low(storage, cfg):
+    """后台补充线程在低水位时自动拉取 IP。"""
+    cfg.set("proxy_supplement_interval", "1")  # 加速，避免 CI 不稳定
+    provider = MagicMock()
+    provider.fetch.return_value = [ProxyRecord(ip="1.1.1.1", port=8080)]
+    p = ProxyPool(storage, cfg, provider)
+    p._last_acquire_time = time.monotonic()  # 模拟有人在用
+    p.start_supplement_loop()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if p._available_count() > 0:
+                break
+            time.sleep(0.1)
+        assert p._available_count() > 0
+        assert provider.fetch.called
+    finally:
+        p.stop_supplement_loop()
+
+
+def test_supplement_loop_skips_when_idle(storage, cfg):
+    """无人使用 IP 时补充线程不拉取（避免闲置白花钱）。"""
+    cfg.set("proxy_supplement_interval", "1")
+    provider = MagicMock()
+    provider.fetch.return_value = [ProxyRecord(ip="1.1.1.1", port=8080)]
+    p = ProxyPool(storage, cfg, provider)
+    p.start_supplement_loop()
+    try:
+        time.sleep(1.5)  # 至少一轮
+        provider.fetch.assert_not_called()
+    finally:
+        p.stop_supplement_loop()
+
+
+def test_supplement_loop_skips_when_disabled(storage, cfg):
+    """proxy_enabled=false 时补充线程不拉取。"""
+    cfg.set("proxy_enabled", "false")
+    cfg.set("proxy_supplement_interval", "1")  # 加速
+    provider = MagicMock()
+    p = ProxyPool(storage, cfg, provider)
+    p.start_supplement_loop()
+    try:
+        time.sleep(1.5)  # > interval，线程必须已执行一轮
+        provider.fetch.assert_not_called()
+    finally:
+        p.stop_supplement_loop()
+
+
+def test_supplement_concurrent_lock(storage, cfg):
+    """_supplement_lock 防止并发补充。"""
+    import threading as _th
+    provider = MagicMock()
+    # 模拟慢速 fetch，持锁期间第二次调用应跳过
+    fetch_event = _th.Event()
+    def slow_fetch(**kw):
+        fetch_event.set()
+        time.sleep(0.5)
+        return [ProxyRecord(ip="1.1.1.1", port=8080)]
+    provider.fetch.side_effect = slow_fetch
+    p = ProxyPool(storage, cfg, provider)
+    results = []
+    def call_supplement():
+        results.append(p._supplement())
+    t1 = _th.Thread(target=call_supplement)
+    t2 = _th.Thread(target=call_supplement)
+    t1.start()
+    time.sleep(0.1)  # 确保 t1 先拿锁
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+    # 一个返回 1（成功补充），一个返回 0（跳过）
+    assert sorted(results) == [0, 1]
+
+
+# ---------------- stats ----------------
+
+
 def test_stats_returns_counts(pool, storage):
     _insert_ip(storage, "1.1.1.1", status=STATUS_IDLE)
     _insert_ip(storage, "2.2.2.2", status=STATUS_IN_USE)
@@ -310,28 +413,86 @@ def test_stats_returns_counts(pool, storage):
 
 # ---------------- Provider 解析 ----------------
 
+# -- 巨量 text 解析 --
 
-def test_juliang_parse_text():
+def test_juliang_parse_text_basic():
+    """ip:port 两段（无账密）。"""
     text = "1.1.1.1:8080\n2.2.2.2:3128\n\nbadline"
     recs = JuliangProvider._parse_text(text)
     assert len(recs) == 2
     assert recs[0].ip == "1.1.1.1"
     assert recs[0].port == 8080
+    assert recs[0].username is None
 
+
+def test_juliang_parse_text_with_auth():
+    """ip:port:username:password 四段。"""
+    text = "117.69.63.102:43787:user123:pass456"
+    recs = JuliangProvider._parse_text(text)
+    assert len(recs) == 1
+    assert recs[0].ip == "117.69.63.102"
+    assert recs[0].port == 43787
+    assert recs[0].username == "user123"
+    assert recs[0].password == "pass456"
+
+
+# -- 巨量 JSON 解析 --
 
 def test_juliang_parse_json():
-    data = {"code": 0, "data": [{"ip": "1.1.1.1", "port": 8080}]}
+    """真实巨量 JSON 响应格式: data.proxy_list 数组。"""
+    data = {
+        "code": 200,
+        "data": {
+            "count": 2,
+            "proxy_list": [
+                ["117.69.63.102", 43787, "user1", "pass1"],
+                ["117.69.63.103", 43788, "user2", "pass2"],
+            ],
+        },
+    }
+    recs = JuliangProvider._parse_json(data)
+    assert len(recs) == 2
+    assert recs[0].ip == "117.69.63.102"
+    assert recs[0].port == 43787
+    assert recs[0].username == "user1"
+    assert recs[0].password == "pass1"
+    assert recs[1].ip == "117.69.63.103"
+    assert recs[1].port == 43788
+
+
+def test_juliang_parse_json_no_auth():
+    """数组只有两元素（无账密）。"""
+    data = {
+        "code": 200,
+        "data": {"proxy_list": [["1.1.1.1", "8080"]]},
+    }
+    recs = JuliangProvider._parse_json(data)
+    assert len(recs) == 1
+    assert recs[0].ip == "1.1.1.1"
+    assert recs[0].port == 8080
+    assert recs[0].username is None
+    assert recs[0].password is None
+
+
+def test_juliang_parse_json_bad_code():
+    """非 200 code 返回空。"""
+    data = {"code": 500, "msg": "error"}
+    recs = JuliangProvider._parse_json(data)
+    assert recs == []
+
+
+def test_juliang_parse_json_invalid_items():
+    """跳过无效数组元素。"""
+    data = {
+        "code": 200,
+        "data": {"proxy_list": [["bad", "notint"], [], ["1.1.1.1", 8080]]},
+    }
     recs = JuliangProvider._parse_json(data)
     assert len(recs) == 1
     assert recs[0].ip == "1.1.1.1"
 
 
-def test_juliang_parse_json_list():
-    data = [{"ip": "1.1.1.1", "port": "8080"}]
-    recs = JuliangProvider._parse_json(data)
-    assert len(recs) == 1
-    assert recs[0].port == 8080
-
+# -- 快代理 JSON 解析 --
 
 def test_kuaidaili_parse(monkeypatch):
     """快代理 JSON 结构解析。"""
@@ -430,3 +591,30 @@ def test_health_checker_mark_fail_increments(storage, cfg):
     checker._mark_fail(pid)
     assert _get_pool_field(storage, pid, "fail_count") == 3
     assert _get_pool_field(storage, pid, "status") == STATUS_DEAD
+
+
+# ---------------- 异步拉取 ----------------
+
+@pytest.mark.asyncio
+async def test_juliang_fetch_async_json():
+    """异步拉取 JSON 格式，返回含账密的 IP。"""
+    import json as _json
+    mock_resp = MagicMock()
+    mock_resp.text = _json.dumps({
+        "code": 200,
+        "data": {"proxy_list": [["1.1.1.1", 8080, "u", "p"]]},
+    })
+    mock_resp.raise_for_status = lambda: None
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    p = JuliangProvider("http://test")
+    import httpx as _httpx
+    with patch.object(_httpx, "AsyncClient", return_value=mock_client):
+        recs = await p.fetch_async(num=1)
+    assert len(recs) == 1
+    assert recs[0].ip == "1.1.1.1"
+    assert recs[0].port == 8080
+    assert recs[0].username == "u"
+    assert recs[0].password == "p"

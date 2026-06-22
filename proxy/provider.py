@@ -33,6 +33,8 @@ class ProxyRecord:
     expire_at: str | None = None  # ISO 字符串
     use_count: int = 0
     max_use: int = 3
+    username: str | None = None
+    password: str | None = None
     id: int | None = None  # 数据库主键（入库后填充）
 
 
@@ -65,75 +67,136 @@ class ProxyProvider:
         """子类实现：调用 API 并解析为 ProxyRecord 列表。"""
         raise NotImplementedError
 
+    async def fetch_async(self, num: int = 10, ttl: int = 60) -> list[ProxyRecord]:
+        """异步拉取 IP，用于 acquire_async() 中不阻塞事件循环。
+
+        :return: ``ProxyRecord`` 列表，失败返回空列表
+        """
+        if not self.api_url:
+            logger.warning(f"[{self.name}] api_url 为空，跳过拉取")
+            return []
+        try:
+            raw = await self._do_fetch_async(num, ttl)
+            logger.info(f"[{self.name}] 拉取 {len(raw)} 个 IP")
+            return raw
+        except Exception as e:
+            logger.error(f"[{self.name}] 异步拉取失败: {e}", exc_info=True)
+            return []
+
+    async def _do_fetch_async(self, num: int, ttl: int) -> list[ProxyRecord]:
+        """子类覆盖：异步调用 API。默认回退到同步 _do_fetch。"""
+        return self._do_fetch(num, ttl)
+
 
 class JuliangProvider(ProxyProvider):
     """巨量HTTP 代理提供者。
 
-    API 返回格式（文本，每行一个 ``ip:port``）::
+    文档: https://www.juliangip.com/help/sdk/http/
 
-        1.2.3.4:8080
-        5.6.7.8:3128
+    请求参数: trade_no + sign（放在 base URL）、num、result_type(json/text)、
+              可选: port、city、isp、pt(username+password分隔符)、
+              split(分隔符)、sb、filter、dedup、no、mr(max_retries)
 
-    或 JSON::
+    JSON 响应格式::
 
-        {"code": 0, "data": [{"ip": "1.2.3.4", "port": 8080}, ...]}
+        {"code": 200, "data": {
+            "count": 1, "request_id": "...",
+            "proxy_list": [["117.69.63.102", 43787, "username", "password"]]
+        }}
+
+    Text 响应格式（每行）::
+
+        117.69.63.102:43787:username:password
     """
 
     name = "juliang"
 
     def _do_fetch(self, num: int, ttl: int) -> list[ProxyRecord]:
-        params = {"num": str(num), "tt": str(ttl), "format": "json"}
+        params = {"num": str(num), "result_type": "json"}
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.get(self.api_url, params=params)
             resp.raise_for_status()
             text = resp.text.strip()
-        # 尝试 JSON 解析
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            # 回退到文本格式：每行 ip:port
+            return self._parse_text(text)
+        return self._parse_json(data)
+
+    async def _do_fetch_async(self, num: int, ttl: int) -> list[ProxyRecord]:
+        params = {"num": str(num), "result_type": "json"}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(self.api_url, params=params)
+            resp.raise_for_status()
+            text = resp.text.strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
             return self._parse_text(text)
         return self._parse_json(data)
 
     @staticmethod
-    def _parse_text(text: str) -> list[ProxyRecord]:
+    def _parse_json(data: Any) -> list[ProxyRecord]:
+        """解析巨量 JSON 响应。
+
+        结构: {"code":200, "data":{"proxy_list":[["ip",port,"user","pass"]]}}
+        """
         records: list[ProxyRecord] = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or ":" not in line:
+        if not isinstance(data, dict):
+            return records
+        
+        # 检查 code（非 200 返回空）
+        code = data.get("code", 200)
+        if code != 200:
+            logger.warning(f"[juliang] API 返回非 200 code: {code}")
+            return records
+        
+        inner = data.get("data")
+        if not isinstance(inner, dict):
+            return records
+        
+        proxy_list = inner.get("proxy_list", [])
+        if not isinstance(proxy_list, list):
+            return records
+        
+        for item in proxy_list:
+            if not isinstance(item, list) or len(item) < 2:
                 continue
-            ip, _, port_str = line.partition(":")
+            ip = item[0]
             try:
-                port = int(port_str)
-            except ValueError:
+                port = int(item[1])
+            except (TypeError, ValueError):
                 continue
-            records.append(ProxyRecord(ip=ip, port=port))
+            rec = ProxyRecord(ip=ip, port=port)
+            if len(item) >= 3:
+                rec.username = str(item[2]) if item[2] else None
+            if len(item) >= 4:
+                rec.password = str(item[3]) if item[3] else None
+            records.append(rec)
         return records
 
     @staticmethod
-    def _parse_json(data: Any) -> list[ProxyRecord]:
+    def _parse_text(text: str) -> list[ProxyRecord]:
+        """解析巨量 text 格式: 每行 ip:port[:username[:password]]。"""
         records: list[ProxyRecord] = []
-        # 兼容两种 JSON 结构：{data: [...]} 或直接 [...]
-        items = data.get("data", data) if isinstance(data, dict) else data
-        if not isinstance(items, list):
-            return records
-        for item in items:
-            if not isinstance(item, dict):
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
                 continue
-            ip = item.get("ip") or item.get("proxy")
-            port = item.get("port")
-            if not ip or not port:
+            parts = line.split(":")
+            if len(parts) < 2:
                 continue
+            ip = parts[0]
             try:
-                port_int = int(port)
-            except (TypeError, ValueError):
+                port = int(parts[1])
+            except ValueError:
                 continue
-            records.append(ProxyRecord(
-                ip=ip,
-                port=port_int,
-                protocol=item.get("protocol", "http"),
-                city=item.get("city"),
-            ))
+            rec = ProxyRecord(ip=ip, port=port)
+            if len(parts) >= 3 and parts[2]:
+                rec.username = parts[2]
+            if len(parts) >= 4 and parts[3]:
+                rec.password = parts[3]
+            records.append(rec)
         return records
 
 
