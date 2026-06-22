@@ -87,6 +87,75 @@ class RequestPool:
                 )
         await self.browser.close_page(page)
 
+    # ---------------- 内部辅助方法 ----------------
+
+    def _fail_task(
+        self,
+        request_id: int,
+        queue_id: int,
+        error_type: str,
+        error_msg: str,
+        proxy_record: Any | None,
+        *,
+        status_code: int | None = None,
+        duration_ms: int | None = None,
+        raw_response_path: str | None = None,
+        response_headers: dict | None = None,
+    ) -> None:
+        """标记请求和任务失败 + 释放代理（不含页面关闭）。"""
+        self.storage.mark_request_failed(
+            request_id, error_msg, status_code=status_code,
+            duration_ms=duration_ms, raw_response_path=raw_response_path,
+            response_headers=response_headers,
+        )
+        self.state_machine.mark_failed(queue_id, error_type, error_msg)
+        self._release_proxy(proxy_record, success=False)
+
+    async def _browser_page_lifecycle(
+        self, browser: Any, url: str, parser: Any, proxy_url: str | None,
+    ) -> tuple[Any, int]:
+        """创建页面 → goto → 生命周期钩子 → 返回 (page, duration_ms)。"""
+        start = time.monotonic()
+        page = await browser.new_page(url=None, proxy=proxy_url)
+
+        on_page_created = getattr(parser, "on_page_created", None)
+        if on_page_created is not None:
+            await on_page_created(page, url)
+
+        timeout_ms = self.config.get_int("request_timeout", 30) * 1000
+        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        duration_ms = int((time.monotonic() - start) * 1000)
+
+        on_page_loaded = getattr(parser, "on_page_loaded", None)
+        if on_page_loaded is not None:
+            await on_page_loaded(page, url)
+
+        on_wait_ready = getattr(parser, "on_wait_ready", None)
+        if on_wait_ready is not None:
+            await on_wait_ready(page)
+
+        return page, duration_ms
+
+    async def _extract_and_parse_html(
+        self, page: Any, parser: Any, url: str, queue_id: int, request_id: int,
+    ) -> tuple[str, list[dict], int, str | None]:
+        """提取 HTML（最多重试 3 次）→ 保存原始响应 → parse → 返回结果。"""
+        html = ""
+        for _retry in range(3):
+            try:
+                await page.wait_for_load_state("domcontentloaded")
+                html = await page.content() if hasattr(page, "content") else ""
+                if html and len(html) > 100:
+                    break
+            except Exception:
+                await asyncio.sleep(1)
+
+        raw_path = self._save_raw_response(queue_id, request_id, html)
+        response_size = len(html.encode("utf-8"))
+        parser.storage = self.storage
+        data = parser.parse(html, url)
+        return html, data, response_size, raw_path
+
     # ---------------- 主入口 ----------------
 
     def process_url(self, task: dict, parser: Any) -> str:
@@ -176,32 +245,15 @@ class RequestPool:
             try:
                 if self.cdp_browser is None:
                     logger.warning("cdp_browser 未注入，无法使用 CDP 模式")
-                    self.storage.mark_request_failed(request_id, "cdp_browser 未注入", status_code=None)
-                    self.state_machine.mark_failed(queue_id, ERROR_NETWORK, "cdp_browser 未注入")
-                    self._release_proxy(proxy_record, success=False)
+                    self._fail_task(request_id, queue_id, ERROR_NETWORK, "cdp_browser 未注入", proxy_record)
                     return "failed"
 
-                cdp_start = time.monotonic()
-                page = await self.cdp_browser.new_page(url=None, proxy=proxy_url)
-
-                # Parser 钩子（goto 前）
-                on_page_created = getattr(parser, "on_page_created", None)
-                if on_page_created is not None:
-                    await on_page_created(page, url)
-
-                timeout_ms = self.config.get_int("request_timeout", 30) * 1000
-                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-                cdp_duration_ms = int((time.monotonic() - cdp_start) * 1000)
-
-                # Parser 钩子（页面加载后）
-                on_page_loaded = getattr(parser, "on_page_loaded", None)
-                if on_page_loaded is not None:
-                    await on_page_loaded(page, url)
+                page, cdp_duration_ms = await self._browser_page_lifecycle(
+                    self.cdp_browser, url, parser, proxy_url,
+                )
 
                 # 验证码检测
-                captcha_triggered = False
                 if self.captcha_handler is not None and await self.captcha_handler.is_captcha_page_async(page):
-                    captcha_triggered = True
                     logger.warning(f"[Captcha:CDP] 触发: {url}")
                     self.storage.execute(
                         "UPDATE requests SET captcha_triggered = 1 WHERE id = ?",
@@ -214,35 +266,16 @@ class RequestPool:
                         await self._close_page_with_hook(page, parser)
                     return "blocked"
 
-                # Parser 自定义等待（redirect guard 完成 / 元素渲染）
-                on_wait_ready = getattr(parser, "on_wait_ready", None)
-                if on_wait_ready is not None:
-                    await on_wait_ready(page)
-
                 # 解析
                 raw_path = None
                 try:
-                    html = ""
-                    for _retry in range(3):
-                        try:
-                            await page.wait_for_load_state("domcontentloaded")
-                            if hasattr(page, "content"):
-                                html = await page.content()
-                            else:
-                                html = ""
-                            if html and len(html) > 100:
-                                break
-                        except Exception:
-                            await asyncio.sleep(1)
-                    raw_path = self._save_raw_response(queue_id, request_id, html)
-                    response_size = len(html.encode("utf-8"))
-                    parser.storage = self.storage
-                    data = parser.parse(html, url)
+                    html, data, response_size, raw_path = await self._extract_and_parse_html(
+                        page, parser, url, queue_id, request_id,
+                    )
                 except Exception as e:
                     logger.error(f"[Parser:{parser.__class__.__name__}] CDP 解析失败: {url} {e}", exc_info=True)
-                    self.storage.mark_request_failed(request_id, str(e), status_code=None, duration_ms=cdp_duration_ms, raw_response_path=raw_path)
-                    self.state_machine.mark_failed(queue_id, ERROR_PARSE, str(e))
-                    self._release_proxy(proxy_record, success=False)
+                    self._fail_task(request_id, queue_id, ERROR_PARSE, str(e), proxy_record,
+                                   duration_ms=cdp_duration_ms, raw_response_path=raw_path)
                     if not self.keep_browser_open:
                         await self._close_page_with_hook(page, parser)
                     return "failed"
@@ -256,9 +289,7 @@ class RequestPool:
 
             except Exception as e:
                 logger.error(f"CDP 请求异常: {url} {e}", exc_info=True)
-                self.storage.mark_request_failed(request_id, str(e), status_code=None)
-                self.state_machine.mark_failed(queue_id, ERROR_NETWORK, str(e))
-                self._release_proxy(proxy_record, success=False)
+                self._fail_task(request_id, queue_id, ERROR_NETWORK, str(e), proxy_record)
                 if page is not None and self.cdp_browser is not None and not self.keep_browser_open:
                     try:
                         await self._close_page_with_hook(page, parser)
@@ -301,13 +332,9 @@ class RequestPool:
                     data = parser.parse(html, url)
                 except Exception as e:
                     logger.error(f"[Parser:{parser.__class__.__name__}] 解析失败: {url} {e}", exc_info=True)
-                    self.storage.mark_request_failed(
-                        request_id, str(e), status_code=None,
-                        duration_ms=duration_ms, raw_response_path=raw_path,
-                        response_headers=resp_headers,
-                    )
-                    self.state_machine.mark_failed(queue_id, ERROR_PARSE, str(e))
-                    self._release_proxy(proxy_record, success=False)
+                    self._fail_task(request_id, queue_id, ERROR_PARSE, str(e), proxy_record,
+                                   duration_ms=duration_ms, raw_response_path=raw_path,
+                                   response_headers=resp_headers)
                     return "failed"
 
                 return await self._finish_request(
@@ -351,11 +378,7 @@ class RequestPool:
                 elif isinstance(e, httpx.ConnectError):
                     error_type_name = "ConnectError"
                 logger.error(f"[HTTP:{error_type_name}] {url}: {e}")
-                self.storage.mark_request_failed(
-                    request_id, str(e), status_code=None,
-                )
-                self.state_machine.mark_failed(queue_id, error_type, str(e))
-                self._release_proxy(proxy_record, success=False)
+                self._fail_task(request_id, queue_id, error_type, str(e), proxy_record)
                 return "failed"
 
         # === Browser 模式 ===
@@ -363,29 +386,12 @@ class RequestPool:
         try:
             if self.browser is None:
                 logger.warning("browser 未注入，跳过浏览器加载")
-                self.storage.mark_request_failed(
-                    request_id, "browser 未注入", status_code=None,
-                )
-                self.state_machine.mark_failed(queue_id, ERROR_NETWORK, "browser 未注入")
-                self._release_proxy(proxy_record, success=False)
+                self._fail_task(request_id, queue_id, ERROR_NETWORK, "browser 未注入", proxy_record)
                 return "failed"
 
-            browser_start = time.monotonic()
-            page = await self.browser.new_page(url=None, proxy=proxy_url)
-
-            # Parser 页面生命周期钩子（goto 前注入 JS 脚本等）
-            on_page_created = getattr(parser, "on_page_created", None)
-            if on_page_created is not None:
-                await on_page_created(page, url)
-
-            timeout_ms = self.config.get_int("request_timeout", 30) * 1000
-            await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            browser_duration_ms = int((time.monotonic() - browser_start) * 1000)
-
-            # Parser 页面加载后钩子（滚动懒加载等）
-            on_page_loaded = getattr(parser, "on_page_loaded", None)
-            if on_page_loaded is not None:
-                await on_page_loaded(page, url)
+            page, browser_duration_ms = await self._browser_page_lifecycle(
+                self.browser, url, parser, proxy_url,
+            )
 
             # 验证码检测
             if self.captcha_handler is not None and await self.captcha_handler.is_captcha_page_async(page):
@@ -410,7 +416,6 @@ class RequestPool:
                 )
                 if captcha_result == "solved":
                     logger.info(f"验证码已解决，继续抓取: {url}")
-                    # 清除 captcha_triggered 标记（已解决）
                     self.storage.execute(
                         "UPDATE requests SET captcha_triggered = 0 WHERE id = ?",
                         (request_id,), fetch="none",
@@ -435,36 +440,16 @@ class RequestPool:
                         await self._close_page_with_hook(page, parser)
                     return "blocked"
 
-            # Parser 自定义等待（redirect guard 完成 / 元素渲染）
-            on_wait_ready = getattr(parser, "on_wait_ready", None)
-            if on_wait_ready is not None:
-                await on_wait_ready(page)
-
             # 解析
             raw_path = None
             try:
-                # 等页面稳定再读 content（守卫脚本可能在跳转中，重试最多 3 次）
-                html = ""
-                for _retry in range(3):
-                    try:
-                        await page.wait_for_load_state("domcontentloaded")
-                        html = await page.content() if hasattr(page, "content") else ""
-                        if html and len(html) > 100:
-                            break
-                    except Exception:
-                        await asyncio.sleep(1)
-                raw_path = self._save_raw_response(queue_id, request_id, html)
-                response_size = len(html.encode("utf-8"))
-                parser.storage = self.storage
-                data = parser.parse(html, url)
+                html, data, response_size, raw_path = await self._extract_and_parse_html(
+                    page, parser, url, queue_id, request_id,
+                )
             except Exception as e:
                 logger.error(f"[Parser:{parser.__class__.__name__}] 解析失败: {url} {e}", exc_info=True)
-                self.storage.mark_request_failed(
-                    request_id, str(e), status_code=None,
-                    duration_ms=browser_duration_ms, raw_response_path=raw_path,
-                )
-                self.state_machine.mark_failed(queue_id, ERROR_PARSE, str(e))
-                self._release_proxy(proxy_record, success=False)
+                self._fail_task(request_id, queue_id, ERROR_PARSE, str(e), proxy_record,
+                               duration_ms=browser_duration_ms, raw_response_path=raw_path)
                 if not self.keep_browser_open:
                     await self._close_page_with_hook(page, parser)
                 return "failed"
@@ -478,11 +463,7 @@ class RequestPool:
 
         except Exception as e:
             logger.error(f"请求处理异常: {url} {e}", exc_info=True)
-            self.storage.mark_request_failed(
-                request_id, str(e), status_code=None,
-            )
-            self.state_machine.mark_failed(queue_id, ERROR_NETWORK, str(e))
-            self._release_proxy(proxy_record, success=False)
+            self._fail_task(request_id, queue_id, ERROR_NETWORK, str(e), proxy_record)
             if page is not None and self.browser is not None and not self.keep_browser_open:
                 try:
                     await self._close_page_with_hook(page, parser)
