@@ -116,24 +116,23 @@ class JuliangProvider(ProxyProvider):
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.get(self.api_url, params=params)
             resp.raise_for_status()
-            text = resp.text.strip()
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return self._parse_text(text)
-        return self._parse_json(data)
+            return self._parse_response(resp.text.strip())
 
     async def _do_fetch_async(self, num: int, ttl: int) -> list[ProxyRecord]:
         params = {"num": str(num), "result_type": "json"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.get(self.api_url, params=params)
             resp.raise_for_status()
-            text = resp.text.strip()
+            return self._parse_response(resp.text.strip())
+
+    @staticmethod
+    def _parse_response(text: str) -> list[ProxyRecord]:
+        """解析 text 或 JSON 响应为 ProxyRecord 列表。"""
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            return self._parse_text(text)
-        return self._parse_json(data)
+            return JuliangProvider._parse_text(text)
+        return JuliangProvider._parse_json(data)
 
     @staticmethod
     def _parse_json(data: Any) -> list[ProxyRecord]:

@@ -618,3 +618,28 @@ async def test_juliang_fetch_async_json():
     assert recs[0].port == 8080
     assert recs[0].username == "u"
     assert recs[0].password == "p"
+
+
+@pytest.mark.asyncio
+async def test_fetch_async_empty_url_returns_empty():
+    """api_url 为空时返回空列表。"""
+    p = JuliangProvider("")
+    recs = await p.fetch_async(num=1)
+    assert recs == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_async_text_format():
+    """异步拉取 text 格式返回 IP。"""
+    mock_resp = MagicMock()
+    mock_resp.text = "117.69.63.102:43787:user:pass\n118.69.63.103:43788"
+    mock_resp.raise_for_status = lambda: None
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    p = JuliangProvider("http://test")
+    import httpx as _httpx
+    with patch.object(_httpx, "AsyncClient", return_value=mock_client):
+        recs = await p.fetch_async(num=2)
+    assert len(recs) == 2
