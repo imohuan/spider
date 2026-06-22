@@ -5,6 +5,7 @@
     python dev.py                  # 同时启动前后端
     python dev.py --no-proxy       # 禁用代理
     python dev.py --log-level DEBUG
+    python dev.py --show-browser    # 显示浏览器窗口（调试用）
 
 前端: Vite HMR 热更新，默认 http://localhost:5175
 后端: Flask + SocketIO，默认 http://127.0.0.1:5000
@@ -42,6 +43,7 @@ parser.add_argument("--web-host", default="127.0.0.1", help="Web 后台监听地
 parser.add_argument("--web-port", type=int, default=5000, help="Web 后台端口")
 parser.add_argument("--fe-host", default="localhost", help="前端 dev server 地址")
 parser.add_argument("--fe-port", type=int, default=5175, help="前端 dev server 端口")
+parser.add_argument("--show-browser", action="store_true", help="显示浏览器窗口（调试用，默认 headless）")
 args = parser.parse_args()
 
 # ── 环境变量 ──────────────────────────────────────────────
@@ -115,10 +117,10 @@ state_machine = StateMachine(db, config_mgr)
 # 创建专用 event loop + browser 供 RequestPool 使用
 _event_loop = create_event_loop()
 
-browser = CrawlerBrowser(config_mgr, headless=True)
+browser = CrawlerBrowser(config_mgr, headless=not args.show_browser)
 try:
     _event_loop.run_until_complete(browser.start())
-    logger.info("浏览器已启动 (headless=True)")
+    logger.info(f"浏览器已启动 (headless={not args.show_browser})")
 except Exception as e:
     logger.error(f"浏览器启动失败（后端 API 仍可用，但 browser 模式不可用）: {e}")
     browser = None

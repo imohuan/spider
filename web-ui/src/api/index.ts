@@ -1,4 +1,4 @@
-import { api } from './http'
+import { api, http } from './http'
 
 export const dashboardApi = {
   getMetrics: () => api.get('/dashboard/metrics'),
@@ -44,11 +44,11 @@ export const configApi = {
   getAll: () => api.get('/config'),
   update: (data: Record<string, string>) => api.put('/config', data),
   reset: () => api.post('/config/reset'),
-  /** 测试 URL — 走完整 Parser pipeline */
+  /** 测试 URL — 走完整 Parser pipeline（browser 模式可能较慢，60s 超时） */
   testUrl: (payload: {
     url: string
     parser?: string   // 可选, 从 Parser 卡片进入时携带
-  }) => api.post('/config/test-url', payload),
+  }) => http.post('/config/test-url', payload, { timeout: 60000 }),
   /** 测试 AI 服务连接 */
   testAi: () => api.post('/config/test-ai'),
 }
