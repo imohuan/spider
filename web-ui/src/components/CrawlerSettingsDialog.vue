@@ -12,30 +12,9 @@ const activeTab = ref<'test' | 'history'>('test')
 const { items: historyItems, add: addHistory, remove: removeHistory, clearAll: clearHistory, getById } = useTestHistory()
 
 // ── 测试配置 ──
-const testMode = ref<'browser' | 'http'>('http')
 const testUrl = ref('')
-const testMethod = ref<'GET' | 'POST' | 'PUT'>('GET')
-const testHeaders = ref('')
-const testCookies = ref('')
-const testBodyType = ref<'none' | 'raw' | 'form-data' | 'json'>('none')
-const testBodyContent = ref('')
 const testRunning = ref(false)
 const testResult = ref<any>(null)
-
-const showBodyConfig = computed(() => testMode.value === 'http' && ['POST', 'PUT'].includes(testMethod.value))
-
-const httpMethodOpts = [
-  { value: 'GET', label: 'GET' },
-  { value: 'POST', label: 'POST' },
-  { value: 'PUT', label: 'PUT' },
-]
-
-const bodyTypeOpts = [
-  { value: 'none', label: '无 Body' },
-  { value: 'raw', label: 'Raw Text' },
-  { value: 'form-data', label: 'Form Data' },
-  { value: 'json', label: 'JSON' },
-]
 
 // ── 执行测试 ──
 async function runTest() {
@@ -43,47 +22,18 @@ async function runTest() {
   testRunning.value = true
   testResult.value = null
 
-  // 构建请求
   const payload: any = {
     url: testUrl.value.trim(),
-    mode: testMode.value,
   }
-
-  if (testMode.value === 'http') {
-    payload.method = testMethod.value
-    if (testHeaders.value.trim()) {
-      try {
-        payload.headers = JSON.parse(testHeaders.value)
-      } catch {
-        // 尝试解析 key: value 格式
-        const h: Record<string, string> = {}
-        testHeaders.value.split('\n').forEach(line => {
-          const idx = line.indexOf(':')
-          if (idx > 0) h[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-        })
-        payload.headers = Object.keys(h).length ? h : undefined
-      }
-    }
-    if (testCookies.value.trim()) payload.cookies = testCookies.value
-    if (testBodyType.value !== 'none') {
-      payload.body_type = testBodyType.value
-      payload.body_content = testBodyContent.value
-    }
-  }
+  if (props.parserName) payload.parser = props.parserName
 
   try {
     const result = await configApi.testUrl(payload)
     testResult.value = result
 
-    // 保存历史记录
     addHistory({
       url: testUrl.value.trim(),
-      mode: testMode.value,
-      method: payload.method || 'GET',
-      headers: testHeaders.value,
-      cookies: testCookies.value,
-      bodyType: testBodyType.value,
-      bodyContent: testBodyContent.value,
+      parser: props.parserName || undefined,
     })
   } catch (err: any) {
     testResult.value = {
@@ -101,20 +51,6 @@ function restoreFromHistory(id: string) {
   const item = getById(id)
   if (!item) return
   testUrl.value = item.url
-  testMode.value = item.mode
-  testMethod.value = item.method
-  testHeaders.value = item.headers
-  testCookies.value = item.cookies
-  testBodyType.value = item.bodyType
-  testBodyContent.value = item.bodyContent
-}
-
-// ── 状态颜色 ──
-function statusColor(code: number): string {
-  if (code >= 200 && code < 300) return 'text-green-600'
-  if (code >= 300 && code < 400) return 'text-yellow-600'
-  if (code >= 400) return 'text-red-600'
-  return 'text-secondary'
 }
 
 // ── 格式化时间 ──
@@ -131,6 +67,12 @@ function iconFillStyle(tab: 'test' | 'history'): Record<string, string> {
 }
 
 function handleCancel() { isOpen.value = false }
+
+// ── 解析结果表格列 ──
+const resultColumns = computed(() => {
+  if (!testResult.value?.ok || !testResult.value.data?.length) return []
+  return Object.keys(testResult.value.data[0]).slice(0, 15) // 最多 15 列
+})
 </script>
 
 <template>
@@ -138,11 +80,11 @@ function handleCancel() { isOpen.value = false }
     v-model="isOpen"
     :title="props.parserName ? `测试 URL — ${props.parserName}` : '测试 URL'"
     icon="science"
-    max-width="max-w-[820px]"
+    max-width="max-w-[960px]"
     body-class="!p-0"
     @close="handleCancel"
   >
-    <div class="flex h-[520px] overflow-hidden">
+    <div class="flex h-[560px] overflow-hidden">
       <!-- ══════ 左侧导航 ══════ -->
       <aside class="w-44 shrink-0 border-r border-outline-variant bg-surface-container-lowest flex flex-col py-ax-sm px-ax-sm select-none">
         <div class="mb-ax-md px-2">
@@ -160,10 +102,7 @@ function handleCancel() { isOpen.value = false }
             ]"
             @click="activeTab = 'test'"
           >
-            <span
-              class="material-symbols-outlined text-[16px]"
-              :style="iconFillStyle('test')"
-            >science</span>
+            <span class="material-symbols-outlined text-[16px]" :style="iconFillStyle('test')">science</span>
             <span>测试 URL</span>
           </button>
 
@@ -176,10 +115,7 @@ function handleCancel() { isOpen.value = false }
             ]"
             @click="activeTab = 'history'"
           >
-            <span
-              class="material-symbols-outlined text-[16px]"
-              :style="iconFillStyle('history')"
-            >history</span>
+            <span class="material-symbols-outlined text-[16px]" :style="iconFillStyle('history')">history</span>
             <span>请求历史</span>
             <span v-if="historyItems.length" class="ml-auto bg-primary text-on-primary text-[10px] rounded-full w-5 h-5 flex items-center justify-center font-bold">
               {{ historyItems.length > 99 ? '99+' : historyItems.length }}
@@ -187,10 +123,8 @@ function handleCancel() { isOpen.value = false }
           </button>
         </nav>
 
-        <div class="border-t border-outline-variant pt-ax-sm">
-          <div class="px-2 text-[10px] text-outline">
-            {{ props.parserName || '' }}
-          </div>
+        <div v-if="props.parserName" class="border-t border-outline-variant pt-ax-sm">
+          <div class="px-2 text-[10px] text-outline font-mono truncate">{{ props.parserName }}</div>
         </div>
       </aside>
 
@@ -202,34 +136,10 @@ function handleCancel() { isOpen.value = false }
           <template v-if="activeTab === 'test'">
             <div class="border-b border-outline-variant pb-ax-sm mb-ax-sm">
               <h3 class="font-headline-sm text-headline-sm text-primary">测试 URL</h3>
-              <p class="font-body-sm text-body-sm text-on-surface-variant mt-1">使用 Browser 或 HTTP 模式抓取目标 URL，查看返回内容。</p>
+              <p class="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                {{ props.parserName ? `使用 ${props.parserName} 解析目标 URL` : '自动匹配 Parser 解析目标 URL' }}
+              </p>
             </div>
-
-            <!-- 模式选择 -->
-            <section class="bg-white border border-outline-variant rounded-lg p-ax-md">
-              <div class="flex items-center gap-ax-md">
-                <div class="flex-1">
-                  <p class="font-label-md text-label-md font-semibold text-primary">请求模式</p>
-                  <p class="font-body-sm text-[11px] text-secondary mt-0.5">Browser 模式使用 Playwright 渲染页面，HTTP 模式直接请求。</p>
-                </div>
-                <div class="flex rounded-lg border border-outline-variant overflow-hidden">
-                  <button
-                    :class="[
-                      'px-3 py-1.5 text-[12px] font-medium transition-colors cursor-pointer',
-                      testMode === 'http' ? 'bg-primary text-on-primary' : 'bg-surface-container-lowest text-secondary hover:bg-surface-container-low',
-                    ]"
-                    @click="testMode = 'http'"
-                  >HTTP</button>
-                  <button
-                    :class="[
-                      'px-3 py-1.5 text-[12px] font-medium transition-colors cursor-pointer',
-                      testMode === 'browser' ? 'bg-primary text-on-primary' : 'bg-surface-container-lowest text-secondary hover:bg-surface-container-low',
-                    ]"
-                    @click="testMode = 'browser'"
-                  >Browser</button>
-                </div>
-              </div>
-            </section>
 
             <!-- URL 输入 -->
             <section class="bg-white border border-outline-variant rounded-lg p-ax-md space-y-ax-sm">
@@ -238,7 +148,7 @@ function handleCancel() { isOpen.value = false }
                 <span class="font-label-md text-label-md font-semibold text-primary">请求 URL</span>
               </div>
               <div class="flex gap-ax-xs">
-                <AxInput v-model="testUrl" size="lg" placeholder="https://cd.58.com/ershouche/" class="flex-1" />
+                <AxInput v-model="testUrl" size="lg" placeholder="https://cd.58.com/shangpu/xxx.shtml" class="flex-1" />
                 <AxButton
                   variant="primary"
                   size="lg"
@@ -250,133 +160,79 @@ function handleCancel() { isOpen.value = false }
               </div>
             </section>
 
-            <!-- HTTP 配置（仅 HTTP 模式显示） -->
-            <template v-if="testMode === 'http'">
-              <section class="bg-white border border-outline-variant rounded-lg p-ax-md space-y-ax-sm">
-                <div class="flex items-center gap-ax-sm mb-ax-xs">
-                  <span class="material-symbols-outlined text-[16px] text-primary">settings_ethernet</span>
-                  <span class="font-label-md text-label-md font-semibold text-primary">HTTP 配置</span>
+            <!-- 模式信息（后端返回后展示） -->
+            <section v-if="testResult?.ok && testResult.fetch_mode" class="bg-white border border-outline-variant rounded-lg p-ax-md">
+              <div class="flex items-center gap-ax-md flex-wrap text-[12px]">
+                <div class="flex items-center gap-ax-xs">
+                  <span class="text-secondary">Parser:</span>
+                  <span class="text-primary font-bold font-mono text-[11px]">{{ testResult.parser }}</span>
                 </div>
-
-                <!-- Method -->
-                <div class="flex items-center gap-ax-md">
-                  <span class="font-body-sm text-[12px] text-secondary w-14 shrink-0">Method</span>
-                  <div class="flex rounded-lg border border-outline-variant overflow-hidden">
-                    <button
-                      v-for="opt in httpMethodOpts" :key="opt.value"
-                      :class="[
-                        'px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer',
-                        testMethod === opt.value ? 'bg-primary text-on-primary' : 'bg-surface-container-lowest text-secondary hover:bg-surface-container-low',
-                      ]"
-                      @click="testMethod = opt.value as any"
-                    >{{ opt.label }}</button>
-                  </div>
+                <div class="flex items-center gap-ax-xs">
+                  <span class="text-secondary">Fetch:</span>
+                  <span :class="testResult.fetch_mode === 'browser' ? 'text-purple-600 font-bold' : 'text-blue-600 font-bold'">{{ testResult.fetch_mode.toUpperCase() }}</span>
                 </div>
-
-                <!-- Headers -->
                 <div>
-                  <div class="flex items-center justify-between mb-ax-xs">
-                    <span class="font-body-sm text-[12px] text-secondary">Headers</span>
-                    <span class="font-body-sm text-[10px] text-outline">每行一条，格式: key: value</span>
-                  </div>
-                  <AxInput v-model="testHeaders" size="lg" :multiline="true" :rows="3" resize="vertical" placeholder="User-Agent: Mozilla/5.0..." class="font-mono text-[12px]" />
+                  <span class="text-secondary">总耗时: </span>
+                  <span class="text-primary font-bold">{{ testResult.duration_ms }}ms</span>
+                  <span class="text-outline text-[10px] ml-ax-xs">(fetch {{ testResult.fetch_duration_ms }}ms + parse {{ testResult.parse_duration_ms }}ms)</span>
                 </div>
-
-                <!-- Cookies -->
                 <div>
-                  <div class="flex items-center justify-between mb-ax-xs">
-                    <span class="font-body-sm text-[12px] text-secondary">Cookies</span>
-                    <span class="font-body-sm text-[10px] text-outline">格式: k1=v1; k2=v2</span>
-                  </div>
-                  <AxInput v-model="testCookies" size="lg" placeholder="session=abc123; token=xyz" class="font-mono text-[12px]" />
+                  <span class="text-secondary">数据量: </span>
+                  <span class="text-primary font-bold">{{ testResult.data_count }} 条</span>
                 </div>
-
-                <!-- Body（仅 POST/PUT 显示） -->
-                <template v-if="showBodyConfig">
-                  <div class="border-t border-outline-variant/40 pt-ax-sm">
-                    <div class="flex items-center gap-ax-md">
-                      <span class="font-body-sm text-[12px] text-secondary w-14 shrink-0">Body</span>
-                      <div class="flex rounded-lg border border-outline-variant overflow-hidden">
-                        <button
-                          v-for="opt in bodyTypeOpts" :key="opt.value"
-                          :class="[
-                            'px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer',
-                            testBodyType === opt.value ? 'bg-primary text-on-primary' : 'bg-surface-container-lowest text-secondary hover:bg-surface-container-low',
-                          ]"
-                          @click="testBodyType = opt.value as any"
-                        >{{ opt.label }}</button>
-                      </div>
-                    </div>
-                    <div v-if="testBodyType !== 'none'" class="mt-ax-xs">
-                      <AxInput
-                        v-model="testBodyContent"
-                        size="lg"
-                        :multiline="true"
-                        :rows="testBodyType === 'json' ? 5 : 3"
-                        resize="vertical"
-                        :placeholder="testBodyType === 'json' ? '{ &quot;key&quot;: &quot;value&quot; }' : testBodyType === 'form-data' ? 'key1=value1&key2=value2' : '输入请求体内容...'"
-                        class="font-mono text-[12px]"
-                      />
-                    </div>
-                  </div>
-                </template>
-              </section>
-            </template>
-
-            <!-- 结果展示 -->
-            <section v-if="testResult" class="bg-white border border-outline-variant rounded-lg p-ax-md">
-              <div class="flex items-center gap-ax-sm mb-ax-sm">
-                <span class="material-symbols-outlined text-[16px]" :class="testResult.ok ? 'text-green-600' : 'text-error'">
-                  {{ testResult.ok ? 'check_circle' : 'error' }}
-                </span>
-                <span class="font-label-md text-label-md font-semibold text-primary">请求结果</span>
               </div>
-
-              <template v-if="testResult.ok">
-                <div class="flex flex-wrap gap-x-ax-xl gap-y-ax-xs mb-ax-sm text-[12px]">
-                  <div>
-                    <span class="text-secondary">状态: </span>
-                    <span :class="statusColor(testResult.status_code)" class="font-bold">{{ testResult.status_code }}</span>
-                  </div>
-                  <div>
-                    <span class="text-secondary">耗时: </span>
-                    <span class="text-primary font-bold">{{ testResult.duration_ms }}ms</span>
-                  </div>
-                  <div>
-                    <span class="text-secondary">大小: </span>
-                    <span class="text-primary">{{ (testResult.content_length / 1024).toFixed(1) }}KB</span>
-                  </div>
-                  <div>
-                    <span class="text-secondary">类型: </span>
-                    <span class="text-primary font-mono text-[11px]">{{ testResult.content_type || '-' }}</span>
-                  </div>
-                </div>
-
-                <!-- 响应 Headers 折叠 -->
-                <details class="mb-ax-sm">
-                  <summary class="font-body-sm text-[11px] text-secondary cursor-pointer hover:text-primary select-none">
-                    Response Headers ({{ Object.keys(testResult.headers || {}).length }})
-                  </summary>
-                  <div class="mt-ax-xs bg-surface-container-lowest rounded p-ax-sm font-mono text-[11px] max-h-40 overflow-y-auto">
-                    <div v-for="(v, k) in testResult.headers" :key="k" class="text-secondary">
-                      <span class="text-primary font-semibold">{{ k }}</span>: {{ v }}
-                    </div>
-                  </div>
-                </details>
-
-                <!-- Body Preview -->
-                <div>
-                  <div class="font-body-sm text-[11px] text-secondary mb-ax-xs">Response Body</div>
-                  <pre class="bg-surface-container-lowest rounded p-ax-sm font-mono text-[11px] text-primary leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap break-all">{{ testResult.body_preview }}</pre>
-                </div>
-              </template>
-
-              <template v-else>
-                <div class="bg-error-container text-on-error-container rounded-lg p-ax-sm text-[12px]">
-                  <span class="font-bold">{{ testResult.error_type }}</span>: {{ testResult.error }}
-                </div>
-              </template>
             </section>
+
+            <!-- 解析结果表格 -->
+            <section v-if="testResult?.ok && testResult.data?.length" class="bg-white border border-outline-variant rounded-lg overflow-hidden">
+              <div class="px-ax-md py-ax-sm border-b border-outline-variant bg-surface-container-lowest">
+                <span class="font-label-md text-label-md font-semibold text-primary">解析结果</span>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-[11px]">
+                  <thead>
+                    <tr class="bg-surface-container-lowest border-b border-outline-variant">
+                      <th
+                        v-for="col in resultColumns"
+                        :key="col"
+                        class="px-ax-sm py-ax-xs text-left font-semibold text-secondary whitespace-nowrap"
+                      >{{ col }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in testResult.data" :key="ri" class="border-b border-outline-variant/40 hover:bg-surface-container-low/50">
+                      <td
+                        v-for="col in resultColumns"
+                        :key="col"
+                        class="px-ax-sm py-ax-xs text-primary max-w-[200px] truncate"
+                        :title="row[col]"
+                      >{{ row[col] ?? '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- 错误展示 -->
+            <section v-if="testResult && !testResult.ok" class="bg-white border border-error-container rounded-lg p-ax-md">
+              <div class="flex items-center gap-ax-sm mb-ax-sm">
+                <span class="material-symbols-outlined text-[16px] text-error">error</span>
+                <span class="font-label-md text-label-md font-semibold text-error">请求失败</span>
+              </div>
+              <div class="bg-error-container text-on-error-container rounded p-ax-sm text-[12px]">
+                <span v-if="testResult.error_type" class="font-bold">{{ testResult.error_type }}</span>
+                <span v-if="testResult.error_type && testResult.error">: </span>
+                <span>{{ testResult.error }}</span>
+              </div>
+            </section>
+
+            <!-- Raw HTML 预览（折叠） -->
+            <details v-if="testResult?.ok && testResult.raw_preview" class="bg-white border border-outline-variant rounded-lg">
+              <summary class="px-ax-md py-ax-sm cursor-pointer hover:bg-surface-container-lowest transition-colors select-none">
+                <span class="font-label-md text-label-md text-secondary">原始 HTML 预览 ({{ testResult.raw_preview.length }} 字符)</span>
+              </summary>
+              <pre class="px-ax-md pb-ax-sm font-mono text-[11px] text-primary leading-relaxed max-h-60 overflow-y-auto whitespace-pre-wrap break-all">{{ testResult.raw_preview }}</pre>
+            </details>
           </template>
 
           <!-- ──── History Tab ──── -->
@@ -384,7 +240,7 @@ function handleCancel() { isOpen.value = false }
             <div class="flex items-center justify-between border-b border-outline-variant pb-ax-sm mb-ax-sm">
               <div>
                 <h3 class="font-headline-sm text-headline-sm text-primary">请求历史</h3>
-                <p class="font-body-sm text-body-sm text-on-surface-variant mt-1">本地存储的测试记录，点击恢复配置。</p>
+                <p class="font-body-sm text-body-sm text-on-surface-variant mt-1">本地存储的测试记录，点击恢复 URL。</p>
               </div>
               <AxButton
                 v-if="historyItems.length"
@@ -406,21 +262,10 @@ function handleCancel() { isOpen.value = false }
                 class="bg-white border border-outline-variant rounded-lg p-ax-sm hover:border-primary/40 transition-colors group"
               >
                 <div class="flex items-center gap-ax-sm">
-                  <div class="flex-1 min-w-0 cursor-pointer py-0.5" @click="restoreFromHistory(item.id)">
+                  <div class="flex-1 min-w-0 cursor-pointer py-0.5" @click="restoreFromHistory(item.id); activeTab = 'test'">
                     <div class="flex items-center gap-ax-xs">
-                      <span
-                        :class="[
-                          'text-[10px] px-1.5 py-0.5 rounded font-bold',
-                          item.mode === 'http' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700',
-                        ]"
-                      >{{ item.mode.toUpperCase() }}</span>
-                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-low text-secondary font-bold">{{ item.method }}</span>
+                      <span v-if="item.parser" class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-bold font-mono">{{ item.parser }}</span>
                       <span class="font-mono text-[11px] text-primary truncate">{{ item.url }}</span>
-                    </div>
-                    <div class="flex gap-ax-md text-[10px] text-outline">
-                      <span v-if="item.headers">{{ item.headers.slice(0, 60) }}{{ item.headers.length > 60 ? '...' : '' }}</span>
-                      <span v-if="item.cookies">Cookies: {{ item.cookies.slice(0, 40) }}...</span>
-                      <span v-if="item.bodyType !== 'none'" class="text-primary">Body: {{ item.bodyType }}</span>
                     </div>
                   </div>
                   <div class="flex items-center gap-ax-xs shrink-0 text-[10px] text-outline">

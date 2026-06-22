@@ -44,15 +44,10 @@ export const configApi = {
   getAll: () => api.get('/config'),
   update: (data: Record<string, string>) => api.put('/config', data),
   reset: () => api.post('/config/reset'),
-  /** 测试 URL — browser 模式或 http 模式 */
+  /** 测试 URL — 走完整 Parser pipeline */
   testUrl: (payload: {
     url: string
-    mode: 'browser' | 'http'
-    method?: string
-    headers?: Record<string, string>
-    cookies?: string
-    body_type?: string
-    body_content?: string
+    parser?: string   // 可选, 从 Parser 卡片进入时携带
   }) => api.post('/config/test-url', payload),
   /** 测试 AI 服务连接 */
   testAi: () => api.post('/config/test-ai'),

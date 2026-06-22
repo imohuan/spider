@@ -1,17 +1,12 @@
 /** 测试 URL 历史记录管理 — localStorage 持久化。 */
 import { ref, computed } from 'vue'
 
-const STORAGE_KEY = 'crawler_test_history'
+const STORAGE_KEY = 'crawler_test_history_v2'
 
 export interface TestHistoryItem {
   id: string
   url: string
-  mode: 'browser' | 'http'
-  method: 'GET' | 'POST' | 'PUT'
-  headers: string       // JSON string or key:value pairs
-  cookies: string
-  bodyType: 'none' | 'raw' | 'form-data' | 'json'
-  bodyContent: string
+  parser?: string       // 从哪个 Parser 卡片进入
   label?: string        // 自动生成的短标签
   createdAt: number     // timestamp
 }
@@ -31,7 +26,6 @@ function loadFromStorage(): TestHistoryItem[] {
 
 function saveToStorage(items: TestHistoryItem[]): void {
   try {
-    // 最多保留 50 条
     const trimmed = items.slice(0, 50)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed))
   } catch {
@@ -39,12 +33,12 @@ function saveToStorage(items: TestHistoryItem[]): void {
   }
 }
 
-function makeLabel(url: string, method: string): string {
+function makeLabel(url: string): string {
   try {
     const u = new URL(url)
-    return `${method} ${u.hostname}${u.pathname.slice(0, 30)}`
+    return `${u.hostname}${u.pathname.slice(0, 30)}`
   } catch {
-    return `${method} ${url.slice(0, 40)}`
+    return url.slice(0, 40)
   }
 }
 
@@ -54,7 +48,7 @@ export function useTestHistory() {
   const options = computed(() =>
     items.value.map((h) => ({
       value: h.id,
-      label: h.label || makeLabel(h.url, h.method),
+      label: h.label || makeLabel(h.url),
     }))
   )
 
@@ -64,7 +58,7 @@ export function useTestHistory() {
     const entry: TestHistoryItem = {
       ...item,
       id,
-      label: makeLabel(item.url, item.method),
+      label: makeLabel(item.url),
       createdAt: Date.now(),
     }
     items.value.unshift(entry)
