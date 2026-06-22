@@ -172,7 +172,7 @@ time.sleep(0.5)  # 等 Flask 就绪
 
 # ── 启动前端 ──────────────────────────────────────────────
 pnpm = "pnpm.cmd" if sys.platform == "win32" else "pnpm"
-fe_dir = os.path.join(os.path.dirname(__file__), "ax-ui-demo")
+fe_dir = os.path.join(os.path.dirname(__file__), "web-ui")
 logger.info(f"Vite 前端启动: http://{args.fe_host}:{args.fe_port}")
 fe_proc = subprocess.Popen(
     [pnpm, "dev", "--host", args.fe_host, "--port", str(args.fe_port)],

@@ -42,7 +42,7 @@ from pathlib import Path
 
 # ── 路径常量 ─────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.resolve()
-FRONTEND_DIR = PROJECT_ROOT / "ax-ui-demo"
+FRONTEND_DIR = PROJECT_ROOT / "web-ui"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
 STATIC_DIR = PROJECT_ROOT / "web" / "static"
 VENV_DIR = PROJECT_ROOT / ".venv"

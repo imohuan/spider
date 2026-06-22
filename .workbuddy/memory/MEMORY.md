@@ -1,7 +1,7 @@
 # 58-data 项目记忆
 
-## ax-ui-demo 子项目
-- 位置：`D:\Code\Git\58-data\ax-ui-demo`
+## web-ui 子项目
+- 位置：`D:\Code\Git\58-data\web-ui`
 - 技术栈：Vue 3.5 + Vite 8 + TS 6 + Tailwind CSS 4.3 + pnpm 10
 - 组件库：ax-ui-kit（自研 Axiom UI），位于 `src/components/ui/`
 - Dev server 默认端口：5175（5173/5174 被占用）

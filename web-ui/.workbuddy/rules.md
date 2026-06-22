@@ -1,6 +1,6 @@
 # UI 组件规则
 
-本项目（`ax-ui-demo`）使用 Axiom UI 组件库（`src/components/ui/`）。
+本项目（`web-ui`）使用 Axiom UI 组件库（`src/components/ui/`）。
 
 ## 强制要求
 

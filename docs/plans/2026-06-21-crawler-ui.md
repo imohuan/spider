@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 为 58 爬虫框架构建前后端一体的 Web 管理后台 — 前端在 ax-ui-demo 中用 ax-ui-kit 组件实现 8 个页面，后端用 Flask + Flask-SocketIO 内嵌到爬虫主进程，提供 RESTful API + WebSocket 实时推送。
+**Goal:** 为 58 爬虫框架构建前后端一体的 Web 管理后台 — 前端在 web-ui 中用 ax-ui-kit 组件实现 8 个页面，后端用 Flask + Flask-SocketIO 内嵌到爬虫主进程，提供 RESTful API + WebSocket 实时推送。
 
 **Architecture:** Flask 单进程内嵌爬虫 Scheduler，通过 Storage 复用现有 SQLite。前端 Vue 3 SPA 通过 Vite dev proxy 调 Flask API（开发），生产环境 Flask 直接 serve 前端 build 产物。WebSocket 推日志/任务状态，HTTP 轮询指标（5s）。SQLite WAL 模式 + 单写线程保证并发安全。爬虫用 Playwright async API 避免 Flask 事件循环冲突。
 
@@ -55,7 +55,7 @@
 | 前端路由 | vue-router 4 | 8 个页面需要 URL 路由，hash 模式避免 Flask 路由冲突 |
 | HTTP 客户端 | axios | 拦截器统一处理错误/loading，比 fetch 好用 |
 | 开发模式 | Vite dev proxy → Flask | 前端 :5175，后端 :5000，Vite proxy 转发 /api 和 /socket.io |
-| 生产模式 | Flask serve dist/ | 单端口部署，`app.static_folder = '../ax-ui-demo/dist'` |
+| 生产模式 | Flask serve dist/ | 单端口部署，`app.static_folder = '../web-ui/dist'` |
 | SQLite 并发 | WAL + 独立读连接 | 爬虫写 + API 读，WAL 模式支持并发读不阻塞写 |
 | Playwright | async API | sync API 会阻塞 Flask 事件循环，必须用 async |
 
@@ -87,10 +87,10 @@ project_root/
 └── ...
 ```
 
-### 2.2 前端变更 (ax-ui-demo/)
+### 2.2 前端变更 (web-ui/)
 
 ```
-ax-ui-demo/
+web-ui/
 ├── src/
 │   ├── App.vue                  # 修改: 改为 ConsoleLayout 壳
 │   ├── main.ts                  # 修改: 注册 router
@@ -1192,19 +1192,19 @@ git commit -m "feat: main.py - launch Flask + crawler in single process"
 ### Task 9: 安装前端依赖
 
 **Files:**
-- Modify: `ax-ui-demo/package.json`
+- Modify: `web-ui/package.json`
 
 **Step 1: 安装 vue-router + axios + socket.io-client**
 
 Run:
 ```bash
-cd ax-ui-demo && pnpm add vue-router@4 axios socket.io-client@4
+cd web-ui && pnpm add vue-router@4 axios socket.io-client@4
 ```
 
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/package.json ax-ui-demo/pnpm-lock.yaml
+git add web-ui/package.json web-ui/pnpm-lock.yaml
 git commit -m "deps(frontend): add vue-router + axios + socket.io-client"
 ```
 
@@ -1213,7 +1213,7 @@ git commit -m "deps(frontend): add vue-router + axios + socket.io-client"
 ### Task 10: Vite dev proxy 配置
 
 **Files:**
-- Modify: `ax-ui-demo/vite.config.ts`
+- Modify: `web-ui/vite.config.ts`
 
 **Step 1: 添加 proxy**
 
@@ -1251,7 +1251,7 @@ export default defineConfig({
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/vite.config.ts
+git add web-ui/vite.config.ts
 git commit -m "feat(frontend): vite dev proxy for flask backend"
 ```
 
@@ -1260,7 +1260,7 @@ git commit -m "feat(frontend): vite dev proxy for flask backend"
 ### Task 11: 路由配置
 
 **Files:**
-- Create: `ax-ui-demo/src/router/index.ts`
+- Create: `web-ui/src/router/index.ts`
 
 **Step 1: 实现 vue-router 配置**
 
@@ -1331,7 +1331,7 @@ export const router = createRouter({
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/src/router/index.ts
+git add web-ui/src/router/index.ts
 git commit -m "feat(frontend): vue-router config with 8 routes"
 ```
 
@@ -1340,7 +1340,7 @@ git commit -m "feat(frontend): vue-router config with 8 routes"
 ### Task 12: 修改 main.ts 注册 router
 
 **Files:**
-- Modify: `ax-ui-demo/src/main.ts`
+- Modify: `web-ui/src/main.ts`
 
 **Step 1: 注册 router**
 
@@ -1368,7 +1368,7 @@ app.mount('#app')
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/src/main.ts
+git add web-ui/src/main.ts
 git commit -m "feat(frontend): register vue-router in main.ts"
 ```
 
@@ -1377,8 +1377,8 @@ git commit -m "feat(frontend): register vue-router in main.ts"
 ### Task 13: HTTP + WebSocket 封装
 
 **Files:**
-- Create: `ax-ui-demo/src/api/http.ts`
-- Create: `ax-ui-demo/src/api/ws.ts`
+- Create: `web-ui/src/api/http.ts`
+- Create: `web-ui/src/api/ws.ts`
 
 **Step 1: axios 实例**
 
@@ -1477,7 +1477,7 @@ export function useWebSocket() {
 **Step 3: Commit**
 
 ```bash
-git add ax-ui-demo/src/api/http.ts ax-ui-demo/src/api/ws.ts
+git add web-ui/src/api/http.ts web-ui/src/api/ws.ts
 git commit -m "feat(frontend): axios + socket.io client wrappers"
 ```
 
@@ -1486,14 +1486,14 @@ git commit -m "feat(frontend): axios + socket.io client wrappers"
 ### Task 14: API 服务层 (8 个模块)
 
 **Files:**
-- Create: `ax-ui-demo/src/api/dashboard.ts`
-- Create: `ax-ui-demo/src/api/queue.ts`
-- Create: `ax-ui-demo/src/api/data.ts`
-- Create: `ax-ui-demo/src/api/proxy.ts`
-- Create: `ax-ui-demo/src/api/captcha.ts`
-- Create: `ax-ui-demo/src/api/config.ts`
-- Create: `ax-ui-demo/src/api/parsers.ts`
-- Create: `ax-ui-demo/src/api/crawler.ts`
+- Create: `web-ui/src/api/dashboard.ts`
+- Create: `web-ui/src/api/queue.ts`
+- Create: `web-ui/src/api/data.ts`
+- Create: `web-ui/src/api/proxy.ts`
+- Create: `web-ui/src/api/captcha.ts`
+- Create: `web-ui/src/api/config.ts`
+- Create: `web-ui/src/api/parsers.ts`
+- Create: `web-ui/src/api/crawler.ts`
 
 **Step 1: 逐个实现 API 模块**
 
@@ -1594,7 +1594,7 @@ export const parsersApi = {
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/src/api/dashboard.ts ax-ui-demo/src/api/queue.ts ax-ui-demo/src/api/data.ts ax-ui-demo/src/api/proxy.ts ax-ui-demo/src/api/captcha.ts ax-ui-demo/src/api/config.ts ax-ui-demo/src/api/parsers.ts ax-ui-demo/src/api/crawler.ts
+git add web-ui/src/api/dashboard.ts web-ui/src/api/queue.ts web-ui/src/api/data.ts web-ui/src/api/proxy.ts web-ui/src/api/captcha.ts web-ui/src/api/config.ts web-ui/src/api/parsers.ts web-ui/src/api/crawler.ts
 git commit -m "feat(frontend): 8 API service modules"
 ```
 
@@ -1603,7 +1603,7 @@ git commit -m "feat(frontend): 8 API service modules"
 ### Task 15: App.vue 改为 ConsoleLayout 壳
 
 **Files:**
-- Modify: `ax-ui-demo/src/App.vue`
+- Modify: `web-ui/src/App.vue`
 
 **Step 1: 替换 App.vue**
 
@@ -1641,7 +1641,7 @@ import CrawlerFooter from '@/components/layout/CrawlerFooter.vue'
 **Step 2: Commit**
 
 ```bash
-git add ax-ui-demo/src/App.vue
+git add web-ui/src/App.vue
 git commit -m "feat(frontend): App.vue as console layout shell with router-view"
 ```
 
@@ -1650,9 +1650,9 @@ git commit -m "feat(frontend): App.vue as console layout shell with router-view"
 ### Task 16: 布局组件 (Sidebar + Header + Footer)
 
 **Files:**
-- Create: `ax-ui-demo/src/components/layout/CrawlerSidebar.vue`
-- Create: `ax-ui-demo/src/components/layout/CrawlerHeader.vue`
-- Create: `ax-ui-demo/src/components/layout/CrawlerFooter.vue`
+- Create: `web-ui/src/components/layout/CrawlerSidebar.vue`
+- Create: `web-ui/src/components/layout/CrawlerHeader.vue`
+- Create: `web-ui/src/components/layout/CrawlerFooter.vue`
 
 **Step 1: CrawlerSidebar.vue**
 
@@ -1818,7 +1818,7 @@ const { connected } = useWebSocket()
 **Step 4: Commit**
 
 ```bash
-git add ax-ui-demo/src/components/layout/
+git add web-ui/src/components/layout/
 git commit -m "feat(frontend): CrawlerSidebar + Header + Footer with ax-ui-kit"
 ```
 
@@ -1833,7 +1833,7 @@ git commit -m "feat(frontend): CrawlerSidebar + Header + Footer with ax-ui-kit"
 ### Task 17: DashboardView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/DashboardView.vue`
+- Create: `web-ui/src/views/DashboardView.vue`
 
 **实现要点:**
 - 顶部状态条：爬虫运行状态 + 暂停/停止按钮（AxButton variant="outline"/"danger"）
@@ -1883,7 +1883,7 @@ onBeforeUnmount(() => clearInterval(timer))
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/DashboardView.vue ax-ui-demo/src/components/dashboard/
+git add web-ui/src/views/DashboardView.vue web-ui/src/components/dashboard/
 git commit -m "feat(frontend): DashboardView with metrics + progress + task flow"
 ```
 
@@ -1892,7 +1892,7 @@ git commit -m "feat(frontend): DashboardView with metrics + progress + task flow
 ### Task 18: QueueView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/QueueView.vue`
+- Create: `web-ui/src/views/QueueView.vue`
 
 **实现要点:**
 - 6 状态计数卡（pending/running/done/failed/blocked/skipped）：`queueApi.stats()`
@@ -1904,7 +1904,7 @@ git commit -m "feat(frontend): DashboardView with metrics + progress + task flow
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/QueueView.vue
+git add web-ui/src/views/QueueView.vue
 git commit -m "feat(frontend): QueueView with stats + filter + table + pagination"
 ```
 
@@ -1913,7 +1913,7 @@ git commit -m "feat(frontend): QueueView with stats + filter + table + paginatio
 ### Task 19: DataBrowserView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/DataBrowserView.vue`
+- Create: `web-ui/src/views/DataBrowserView.vue`
 
 **实现要点:**
 - 表选择：AxSelect（业务表列表），`dataApi.tables()`
@@ -1926,7 +1926,7 @@ git commit -m "feat(frontend): QueueView with stats + filter + table + paginatio
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/DataBrowserView.vue
+git add web-ui/src/views/DataBrowserView.vue
 git commit -m "feat(frontend): DataBrowserView with dynamic table + export + image preview"
 ```
 
@@ -1935,7 +1935,7 @@ git commit -m "feat(frontend): DataBrowserView with dynamic table + export + ima
 ### Task 20: ProxyPoolView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/ProxyPoolView.vue`
+- Create: `web-ui/src/views/ProxyPoolView.vue`
 
 **实现要点:**
 - 4 池状态卡（总数/idle/cooldown/dead）：`proxyApi.stats()`
@@ -1946,7 +1946,7 @@ git commit -m "feat(frontend): DataBrowserView with dynamic table + export + ima
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/ProxyPoolView.vue
+git add web-ui/src/views/ProxyPoolView.vue
 git commit -m "feat(frontend): ProxyPoolView with stats + manual fetch + kill"
 ```
 
@@ -1955,7 +1955,7 @@ git commit -m "feat(frontend): ProxyPoolView with stats + manual fetch + kill"
 ### Task 21: CaptchaLogView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/CaptchaLogView.vue`
+- Create: `web-ui/src/views/CaptchaLogView.vue`
 
 **实现要点:**
 - 4 策略统计卡（触发/自动通过/换IP通过/转人工）：`captchaApi.stats()`
@@ -1966,7 +1966,7 @@ git commit -m "feat(frontend): ProxyPoolView with stats + manual fetch + kill"
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/CaptchaLogView.vue
+git add web-ui/src/views/CaptchaLogView.vue
 git commit -m "feat(frontend): CaptchaLogView with stats + log table + screenshot dialog"
 ```
 
@@ -1975,7 +1975,7 @@ git commit -m "feat(frontend): CaptchaLogView with stats + log table + screensho
 ### Task 22: ConfigView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/ConfigView.vue`
+- Create: `web-ui/src/views/ConfigView.vue`
 
 **实现要点:**
 - 分类 tab：代理IP / 反爬限速 / 验证码 / 系统（用 Ax 组件或手写 tab）
@@ -1986,7 +1986,7 @@ git commit -m "feat(frontend): CaptchaLogView with stats + log table + screensho
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/ConfigView.vue
+git add web-ui/src/views/ConfigView.vue
 git commit -m "feat(frontend): ConfigView with tabs + edit + save + reset with confirm"
 ```
 
@@ -1995,7 +1995,7 @@ git commit -m "feat(frontend): ConfigView with tabs + edit + save + reset with c
 ### Task 23: ParsersView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/ParsersView.vue`
+- Create: `web-ui/src/views/ParsersView.vue`
 
 **实现要点:**
 - 卡片网格：每张卡片显示 Parser 名称、url_pattern、业务表、字段数、抓取量
@@ -2007,7 +2007,7 @@ git commit -m "feat(frontend): ConfigView with tabs + edit + save + reset with c
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/ParsersView.vue
+git add web-ui/src/views/ParsersView.vue
 git commit -m "feat(frontend): ParsersView with cards + toggle + test URL dialog"
 ```
 
@@ -2016,7 +2016,7 @@ git commit -m "feat(frontend): ParsersView with cards + toggle + test URL dialog
 ### Task 24: LogsView.vue
 
 **Files:**
-- Create: `ax-ui-demo/src/views/LogsView.vue`
+- Create: `web-ui/src/views/LogsView.vue`
 
 **实现要点:**
 - 控制条：4 级别 checkbox（INFO/DEBUG/WARN/ERROR）+ 模块 AxSelect + 搜索 AxInput + 自动滚动 AxSwitch + 清空 AxButton
@@ -2028,7 +2028,7 @@ git commit -m "feat(frontend): ParsersView with cards + toggle + test URL dialog
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/views/LogsView.vue
+git add web-ui/src/views/LogsView.vue
 git commit -m "feat(frontend): LogsView with realtime terminal + filter + auto-scroll"
 ```
 
@@ -2041,11 +2041,11 @@ git commit -m "feat(frontend): LogsView with realtime terminal + filter + auto-s
 ### Task 25: 共享组件
 
 **Files:**
-- Create: `ax-ui-demo/src/components/shared/StatusBadge.vue`
-- Create: `ax-ui-demo/src/components/shared/FilterBar.vue`
-- Create: `ax-ui-demo/src/components/shared/EmptyState.vue`
-- Create: `ax-ui-demo/src/components/dashboard/MetricCard.vue`
-- Create: `ax-ui-demo/src/components/dashboard/TaskFlow.vue`
+- Create: `web-ui/src/components/shared/StatusBadge.vue`
+- Create: `web-ui/src/components/shared/FilterBar.vue`
+- Create: `web-ui/src/components/shared/EmptyState.vue`
+- Create: `web-ui/src/components/dashboard/MetricCard.vue`
+- Create: `web-ui/src/components/dashboard/TaskFlow.vue`
 
 **实现要点:**
 
@@ -2090,7 +2090,7 @@ defineProps<{ label: string; value: string | number; trend?: string; trendColor?
 
 **Commit:**
 ```bash
-git add ax-ui-demo/src/components/shared/ ax-ui-demo/src/components/dashboard/
+git add web-ui/src/components/shared/ web-ui/src/components/dashboard/
 git commit -m "feat(frontend): shared components - StatusBadge + MetricCard + TaskFlow + FilterBar + EmptyState"
 ```
 
@@ -2105,7 +2105,7 @@ Expected: Flask 启动在 :5000，无报错
 
 **Step 2: 启动前端**
 
-Run: `cd ax-ui-demo && pnpm dev`
+Run: `cd web-ui && pnpm dev`
 Expected: Vite 启动在 :5175，proxy 生效
 
 **Step 3: 逐页验证**
