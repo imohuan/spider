@@ -754,6 +754,92 @@ class RequestPool:
         while self._active_tasks and time.monotonic() < deadline:
             time.sleep(0.5)
 
+    # ---------------- 原始 HTML 获取（无 DB 写入）----------------
+
+    async def fetch_raw_html(self, url: str, parser: Any, fetch_mode: str = "browser") -> dict:
+        """Get raw HTML without DB writes. For test-url debugging.
+
+        Returns dict: {html, duration_ms, ...}
+        """
+        if fetch_mode == "http":
+            return await self._fetch_raw_html_http(url, parser)
+
+        # --- Browser 模式 ---
+        if self.browser is None:
+            raise RuntimeError("browser 未初始化")
+
+        browser_start = time.monotonic()
+        page = await self.browser.new_page(url=None)
+
+        # Parser 生命周期钩子（goto 前注入 JS 脚本）
+        on_page_created = getattr(parser, "on_page_created", None)
+        if on_page_created is not None:
+            await on_page_created(page, url)
+
+        timeout_ms = self.config.get_int("request_timeout", 30) * 1000
+        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        browser_duration_ms = int((time.monotonic() - browser_start) * 1000)
+
+        # Parser 生命周期钩子（滚动懒加载等）
+        on_page_loaded = getattr(parser, "on_page_loaded", None)
+        if on_page_loaded is not None:
+            await on_page_loaded(page, url)
+
+        # 获取 HTML（重试最多 3 次，等页面稳定）
+        html = ""
+        for _retry in range(3):
+            try:
+                await page.wait_for_load_state("domcontentloaded")
+                html = await page.content() if hasattr(page, "content") else ""
+                if html and len(html) > 100:
+                    break
+            except Exception:
+                await asyncio.sleep(1)
+
+        await self.browser.close_page(page)
+
+        return {"html": html, "duration_ms": browser_duration_ms}
+
+    async def _fetch_raw_html_http(self, url: str, parser: Any) -> dict:
+        """HTTP mode for fetch_raw_html — no DB writes, no proxy, no parse."""
+
+        # 构建合并请求头（复用 _fetch_http 的头部合并逻辑）
+        if self.config.get_bool("anti_bot_random_ua", False):
+            ua = self._get_random_ua()
+        else:
+            ua = self.config.get(
+                "http_user_agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+
+        merged_headers = {"User-Agent": ua}
+
+        default_headers_str = self.config.get("http_default_headers", "{}")
+        try:
+            default_headers = json.loads(default_headers_str or "{}")
+            merged_headers.update(default_headers)
+        except json.JSONDecodeError:
+            pass
+
+        merged_headers.update(getattr(parser, "http_headers", {}))
+
+        timeout = self.config.get_int("request_timeout", 30)
+
+        async with httpx.AsyncClient(
+            follow_redirects=self.config.get_bool("http_follow_redirects", True),
+            timeout=httpx.Timeout(timeout),
+        ) as client:
+            start = time.monotonic()
+            response = await client.request("GET", url, headers=merged_headers)
+            duration_ms = int((time.monotonic() - start) * 1000)
+            return {
+                "html": response.text,
+                "duration_ms": duration_ms,
+                "status_code": response.status_code,
+                "content_type": response.headers.get("content-type", ""),
+            }
+
     # ---------------- 统计 ----------------
 
     def stats(self) -> dict[str, int]:
