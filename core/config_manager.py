@@ -74,6 +74,16 @@ _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     ("ai_api_key", "", "AI API 密钥，用于调用大模型"),
     ("ai_model", "", "AI 模型名称，如 gpt-4o / deepseek-chat"),
     ("ai_system_prompt", "", "AI 系统提示词，定义 AI 的角色和行为"),
+    # --- 反检测 ---
+    ("anti_bot_random_ua", "true", "每次请求随机生成 User-Agent，需 fake-useragent 库支持"),
+    ("anti_bot_stealth", "true", "Browser 模式下启用 playwright-stealth 隐藏浏览器自动化特征"),
+    ("anti_bot_delay_page_min", "1.0", "Browser/CDP 模式下页面内操作最小随机延迟(秒)，模拟人类操作速度"),
+    ("anti_bot_delay_page_max", "3.0", "Browser/CDP 模式下页面内操作最大随机延迟(秒)"),
+    ("anti_bot_ua_platforms", "windows,macos", "fake-useragent 限定的操作系统平台，逗号分隔，避免生成手机 UA"),
+    ("anti_bot_ua_browsers", "chrome,edge", "fake-useragent 限定的浏览器类型，逗号分隔"),
+    # --- CDP 模式 ---
+    ("cdp_endpoint", "http://localhost:9222", "CDP 模式下连接本地 Chrome 的调试端点"),
+    ("cdp_enabled", "false", "启用 CDP 模式连接本地 Chrome，需手动启动 Chrome --remote-debugging-port=9222"),
 ]
 
 # 真值字符串集合（小写）—— 与假值集合互斥
