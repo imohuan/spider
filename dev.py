@@ -144,6 +144,7 @@ app.config["CRAWLER_COMPONENTS"] = {
     "registry": registry,
     "scheduler": scheduler,
     "browser": browser,
+    "request_pool": request_pool,
 }
 
 # 注入 Scheduler 引用给爬虫控制 API
