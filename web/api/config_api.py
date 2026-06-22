@@ -144,10 +144,13 @@ def test_url():
 
     async def _do() -> dict:
         t0 = time.perf_counter()
+        logger.info(f"[test-url] 开始抓取 url={url[:60]} fetch_mode={fetch_mode}")
 
         # Fetch
         if request_pool is not None:
+            logger.info(f"[test-url] → fetch_raw_html 调用中...")
             fetch_result = await request_pool.fetch_raw_html(url, parser, fetch_mode, show_window=show_window)
+            logger.info(f"[test-url] ← fetch_raw_html 完成 duration={fetch_result.get('duration_ms')}ms html_len={len(fetch_result.get('html',''))}")
             html = fetch_result["html"]
             fetch_duration_ms = fetch_result.get("duration_ms", 0)
         elif fetch_mode == "browser":
@@ -178,6 +181,7 @@ def test_url():
             raise RuntimeError("获取到空 HTML")
 
         # Parse
+        logger.info(f"[test-url] 开始解析 parser={parser.__class__.__name__}")
         t_parse = time.perf_counter()
         try:
             data_result = parser.parse(html, url)

@@ -769,8 +769,11 @@ class RequestPool:
         if self.browser is None:
             raise RuntimeError("browser 未初始化")
 
+        logger.info(f"[fetch_raw_html] browser.headless={self.browser.headless} browser._browser={'OK' if self.browser._browser else 'None'}")
         browser_start = time.monotonic()
+        logger.info(f"[fetch_raw_html] new_page 前...")
         page = await self.browser.new_page(url=None)
+        logger.info(f"[fetch_raw_html] new_page 完成")
 
         # Parser 生命周期钩子（goto 前注入 JS 脚本）
         # show_window 调试模式时跳过守卫脚本，避免死循环
@@ -781,11 +784,14 @@ class RequestPool:
         timeout_ms = self.config.get_int("request_timeout", 30) * 1000
         if show_window:
             timeout_ms = max(timeout_ms, 60000)  # 调试模式至少 60s 超时
+        logger.info(f"[fetch_raw_html] page.goto 前 timeout={timeout_ms}ms ...")
         await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        logger.info(f"[fetch_raw_html] page.goto 完成")
 
         # 调试：弹到前台方便观察
         if show_window:
             try:
+                logger.info(f"[fetch_raw_html] bring_to_front 前...")
                 await page.bring_to_front()
                 # 强制 OS 级别窗口前置（Windows 专用）
                 await page.evaluate("window.focus();")
@@ -795,6 +801,7 @@ class RequestPool:
                     "setTimeout(() => { document.title = document.title.replace('>>> 测试中 <<< ', ''); }, 800);"
                 )
                 await asyncio.sleep(0.3)
+                logger.info(f"[fetch_raw_html] bring_to_front 完成")
             except Exception:
                 pass  # 弹窗失败不影响抓取
 
@@ -806,6 +813,7 @@ class RequestPool:
             await on_page_loaded(page, url)
 
         # 获取 HTML（重试最多 3 次，等页面稳定）
+        logger.info(f"[fetch_raw_html] 获取 HTML content ...")
         html = ""
         for _retry in range(3):
             try:
@@ -816,14 +824,19 @@ class RequestPool:
             except Exception:
                 await asyncio.sleep(1)
 
+        logger.info(f"[fetch_raw_html] HTML 获取完成 len={len(html)}")
+
         # show_window 时保持窗口几秒，让用户能看到渲染结果
         if show_window:
             try:
+                logger.info(f"[fetch_raw_html] show_window: 保持窗口 3s ...")
                 await asyncio.sleep(3)
+                logger.info(f"[fetch_raw_html] show_window: 3s 结束")
             except Exception:
                 pass
 
         await self.browser.close_page(page)
+        logger.info(f"[fetch_raw_html] 完成 return")
 
         return {"html": html, "duration_ms": browser_duration_ms}
 
