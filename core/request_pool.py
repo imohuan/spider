@@ -219,9 +219,9 @@ class RequestPool:
         proxy_record = None
         proxy_url = None
         if self.proxy_pool is not None:
-            proxy_record = self.proxy_pool.acquire()
+            proxy_record = await self.proxy_pool.acquire_async()
             if proxy_record is not None:
-                proxy_url = f"http://{proxy_record.ip}:{proxy_record.port}"
+                proxy_url = self._build_proxy_url(proxy_record)
 
         # 2. 记录请求开始
         method = "GET"
@@ -593,7 +593,7 @@ class RequestPool:
         timeout = rc.get("timeout", self.config.get_int("request_timeout", 30))
 
         # 代理
-        proxy = f"http://{proxy_record.ip}:{proxy_record.port}" if proxy_record else None
+        proxy = self._build_proxy_url(proxy_record) if proxy_record else None
 
         # 发请求（计时）
         async with httpx.AsyncClient(
@@ -761,6 +761,20 @@ class RequestPool:
         deadline = time.monotonic() + timeout
         while self._active_tasks and time.monotonic() < deadline:
             time.sleep(0.5)
+
+    # ---------------- 代理 URL ----------------
+
+    @staticmethod
+    def _build_proxy_url(proxy_record: Any) -> str:
+        """根据 ProxyRecord 构建代理 URL，带账密认证。
+
+        有账密: ``http://user:pass@ip:port``
+        无账密: ``http://ip:port``
+        """
+        auth = ""
+        if getattr(proxy_record, "username", None) and getattr(proxy_record, "password", None):
+            auth = f"{proxy_record.username}:{proxy_record.password}@"
+        return f"http://{auth}{proxy_record.ip}:{proxy_record.port}"
 
     # ---------------- 原始 HTML 获取（无 DB 写入）----------------
 

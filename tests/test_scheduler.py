@@ -324,7 +324,7 @@ class TestRequestPool:
     @pytest.fixture
     def mock_proxy_pool(self):
         pool = MagicMock()
-        pool.acquire.return_value = None  # 默认无 IP
+        pool.acquire_async = AsyncMock(return_value=None)  # 默认无 IP
         pool.release_success = MagicMock()
         pool.release_fail = MagicMock()
         return pool

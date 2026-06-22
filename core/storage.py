@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS proxy_pool (
     port            INTEGER NOT NULL,
     protocol        TEXT DEFAULT 'http',
     city            TEXT,
+    username        TEXT,
+    password        TEXT,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expire_at       TIMESTAMP NOT NULL,
     use_count       INTEGER DEFAULT 0,
@@ -219,6 +221,7 @@ class Storage:
 
     def _migrate(self) -> None:
         """自动添加缺失列（幂等）。"""
+        # requests 表迁移
         columns_to_add = [
             ("raw_response_path", "TEXT"),
             ("response_headers", "TEXT"),
@@ -226,7 +229,6 @@ class Storage:
             ("finish_time", "TIMESTAMP"),
         ]
         with self._lock:
-            # 获取现有列名
             existing = {
                 row[1]
                 for row in self._conn.execute("PRAGMA table_info(requests)").fetchall()
@@ -236,6 +238,23 @@ class Storage:
                     sql = f"ALTER TABLE requests ADD COLUMN {_validate_identifier(col_name)} {col_type}"
                     self._conn.execute(sql)
                     logger.info(f"自动迁移: requests 表添加列 {col_name} {col_type}")
+            self._conn.commit()
+        
+        # proxy_pool 表迁移
+        proxy_columns = [
+            ("username", "TEXT"),
+            ("password", "TEXT"),
+        ]
+        with self._lock:
+            existing = {
+                row[1]
+                for row in self._conn.execute("PRAGMA table_info(proxy_pool)").fetchall()
+            }
+            for col_name, col_type in proxy_columns:
+                if col_name not in existing:
+                    sql = f"ALTER TABLE proxy_pool ADD COLUMN {_validate_identifier(col_name)} {col_type}"
+                    self._conn.execute(sql)
+                    logger.info(f"自动迁移: proxy_pool 表添加列 {col_name} {col_type}")
             self._conn.commit()
 
     # ---------------- 上下文管理 ----------------

@@ -62,6 +62,7 @@ onMounted(fetchAll)
         <thead class="bg-surface-container-low text-secondary text-[11px]">
           <tr>
             <th class="text-left px-4 py-2 font-medium">IP:Port</th>
+            <th class="text-left px-4 py-2 font-medium w-14">账密</th>
             <th class="text-left px-4 py-2 font-medium w-14">城市</th>
             <th class="text-left px-4 py-2 font-medium w-16">状态</th>
             <th class="text-left px-4 py-2 font-medium w-16">使用</th>
@@ -73,6 +74,7 @@ onMounted(fetchAll)
         <tbody class="divide-y divide-outline-variant">
           <tr v-for="p in items" :key="p.id" class="hover:bg-surface-container-low">
             <td class="px-4 py-2 font-mono text-primary">{{ p.ip }}:{{ p.port }}</td>
+            <td class="px-4 py-2 text-secondary">{{ p.username ? p.username + ':***' : '-' }}</td>
             <td class="px-4 py-2 text-secondary">{{ p.city }}</td>
             <td class="px-4 py-2"><span class="pill" :class="statusColors[p.status] || ''">{{ p.status }}</span></td>
             <td class="px-4 py-2 text-secondary">{{ p.use }}/{{ p.max_use }}</td>

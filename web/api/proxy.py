@@ -19,8 +19,8 @@ def list_proxy():
     if st: where = "WHERE status = ?"; params.append(st)
     s = Storage()
     total = s.execute(f"SELECT COUNT(*) FROM proxy_pool {where}", params=params, fetch='one')[0]
-    rows = s.execute(f"SELECT id,ip,port,city,status,use_count,max_use,fail_count,expire_at,cooldown_until FROM proxy_pool {where} ORDER BY id DESC LIMIT ? OFFSET ?", params=params+[size,(page-1)*size], fetch='all')
-    return jsonify({'items':[{'id':r[0],'ip':r[1],'port':r[2],'city':r[3],'status':r[4],'use':r[5],'max_use':r[6],'fail':r[7],'expire_at':r[8],'cooldown_until':r[9]} for r in rows],'total':total,'page':page,'size':size})
+    rows = s.execute(f"SELECT id,ip,port,city,username,status,use_count,max_use,fail_count,expire_at,cooldown_until FROM proxy_pool {where} ORDER BY id DESC LIMIT ? OFFSET ?", params=params+[size,(page-1)*size], fetch='all')
+    return jsonify({'items':[{'id':r[0],'ip':r[1],'port':r[2],'city':r[3],'username':r[4],'status':r[5],'use':r[6],'max_use':r[7],'fail':r[8],'expire_at':r[9],'cooldown_until':r[10]} for r in rows],'total':total,'page':page,'size':size})
 
 @bp.route('/fetch', methods=['POST'])
 def fetch_proxy(): return jsonify({'ok':True})

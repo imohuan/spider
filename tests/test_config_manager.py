@@ -128,7 +128,7 @@ def test_get_empty_string_value(storage):
 @pytest.mark.parametrize(
     "key,expected",
     [
-        ("proxy_fetch_num", 10),
+        ("proxy_fetch_num", 3),
         ("proxy_ttl", 60),
         ("proxy_max_use", 3),
         ("proxy_health_interval", 300),

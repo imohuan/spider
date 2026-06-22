@@ -23,14 +23,14 @@ from core.storage import Storage
 logger = get_logger("config")
 
 
-# 25 项默认配置（设计文档 3.1）
+# 默认配置项，首次启动时 INSERT OR IGNORE（设计文档 3.1）
 # 顺序与文档表格一致，便于人工对照
 _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     # --- 代理 ---
     ("proxy_enabled", "true", "启用后所有请求优先走代理池，关闭则直连"),
     ("proxy_provider", "juliang", "代理服务商，当前支持巨量(juliang)和快代理(kuaidaili)"),
     ("proxy_api_url", "", "巨量HTTP API提取链接，格式如 http://api.juliangip.com/v1/..."),
-    ("proxy_fetch_num", "10", "每次从代理API拉取的IP数量，建议 5~20"),
+    ("proxy_fetch_num", "3", "每次从代理API拉取的IP数量上限，建议2~5"),
     ("proxy_ttl", "60", "单个IP的有效期(秒)，到期后自动释放"),
     ("proxy_max_use", "3", "单个IP最多使用次数，达到后标记失效"),
     ("proxy_health_interval", "300", "代理池健康检查间隔(秒)，定期剔除不可用IP"),
