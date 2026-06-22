@@ -38,14 +38,6 @@ from core.storage import Storage
 
 logger = get_logger("request_pool")
 
-# 反爬 User-Agent 池（可扩展）
-_UA_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-]
-
 
 class RequestPool:
     """请求池，处理单个 URL 的完整抓取流程。
@@ -65,6 +57,7 @@ class RequestPool:
         state_machine: StateMachine,
         proxy_pool: Any | None = None,
         browser: Any | None = None,
+        cdp_browser: Any | None = None,
         captcha_handler: Any | None = None,
         image_downloader: Any | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
@@ -74,6 +67,7 @@ class RequestPool:
         self.state_machine = state_machine
         self.proxy_pool = proxy_pool
         self.browser = browser
+        self.cdp_browser = cdp_browser
         self.captcha_handler = captcha_handler
         self.image_downloader = image_downloader
         self._loop = loop  # 持久事件循环（production 模式传入，避免 Playwright 对象跨循环失效）
@@ -138,12 +132,16 @@ class RequestPool:
         queue_id = task["id"]
         url = task["url"]
 
-        # 确定抓取模式：task > config 全局 > 默认 browser
-        fetch_mode = task.get("fetch_mode") or self.config.get("fetch_mode", "browser")
+        # 确定抓取模式：task > parser.preferred_fetch_mode > config 全局 > 默认 browser
+        fetch_mode = (
+            task.get("fetch_mode")
+            or getattr(parser, "preferred_fetch_mode", None)
+            or self.config.get("fetch_mode", "browser")
+        )
 
-        # requires_browser 强制走浏览器
+        # requires_browser 强制走 browser 或 cdp（不能走 http）
         if fetch_mode == "http" and getattr(parser, "requires_browser", False):
-            logger.info(f"[{parser.__class__.__name__}] requires_browser=True, 强制使用浏览器模式")
+            logger.info(f"[{parser.__class__.__name__}] requires_browser=True, 强制使用 browser 模式")
             fetch_mode = "browser"
 
         # 1. 申请代理 IP
@@ -169,6 +167,97 @@ class RequestPool:
             proxy_ip=proxy_record.ip if proxy_record else None,
             method=method,
         )
+
+        # === CDP 模式 ===
+        if fetch_mode == "cdp":
+            page = None
+            try:
+                if self.cdp_browser is None:
+                    logger.warning("cdp_browser 未注入，无法使用 CDP 模式")
+                    self.storage.mark_request_failed(request_id, "cdp_browser 未注入", status_code=None)
+                    self.state_machine.mark_failed(queue_id, ERROR_NETWORK, "cdp_browser 未注入")
+                    self._release_proxy(proxy_record, success=False)
+                    return "failed"
+
+                cdp_start = time.monotonic()
+                page = await self.cdp_browser.new_page(url=None, proxy=proxy_url)
+
+                # Parser 钩子（goto 前）
+                on_page_created = getattr(parser, "on_page_created", None)
+                if on_page_created is not None:
+                    await on_page_created(page, url)
+
+                timeout_ms = self.config.get_int("request_timeout", 30) * 1000
+                await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                cdp_duration_ms = int((time.monotonic() - cdp_start) * 1000)
+
+                # Parser 钩子（页面加载后）
+                on_page_loaded = getattr(parser, "on_page_loaded", None)
+                if on_page_loaded is not None:
+                    await on_page_loaded(page, url)
+
+                # 验证码检测
+                captcha_triggered = False
+                if self.captcha_handler is not None and await self.captcha_handler.is_captcha_page_async(page):
+                    captcha_triggered = True
+                    logger.warning(f"[Captcha:CDP] 触发: {url}")
+                    self.storage.execute(
+                        "UPDATE requests SET captcha_triggered = 1 WHERE id = ?",
+                        (request_id,), fetch="none",
+                    )
+                    self.storage.mark_request_failed(request_id, "CDP 模式触发验证码", status_code=None)
+                    self.state_machine.mark_blocked(queue_id, ERROR_CAPTCHA, "CDP 模式验证码")
+                    self._release_proxy(proxy_record, success=False)
+                    if not self.keep_browser_open:
+                        await self._close_page_with_hook(page, parser)
+                    return "blocked"
+
+                # 解析
+                raw_path = None
+                try:
+                    html = ""
+                    for _retry in range(3):
+                        try:
+                            await page.wait_for_load_state("domcontentloaded")
+                            if hasattr(page, "content"):
+                                html = await page.content()
+                            else:
+                                html = ""
+                            if html and len(html) > 100:
+                                break
+                        except Exception:
+                            await asyncio.sleep(1)
+                    raw_path = self._save_raw_response(queue_id, request_id, html)
+                    response_size = len(html.encode("utf-8"))
+                    parser.storage = self.storage
+                    data = parser.parse(html, url)
+                except Exception as e:
+                    logger.error(f"[Parser:{parser.__class__.__name__}] CDP 解析失败: {url} {e}", exc_info=True)
+                    self.storage.mark_request_failed(request_id, str(e), status_code=None, duration_ms=cdp_duration_ms, raw_response_path=raw_path)
+                    self.state_machine.mark_failed(queue_id, ERROR_PARSE, str(e))
+                    self._release_proxy(proxy_record, success=False)
+                    if not self.keep_browser_open:
+                        await self._close_page_with_hook(page, parser)
+                    return "failed"
+
+                return await self._finish_request(
+                    task, parser, html, data,
+                    queue_id, request_id, proxy_record, proxy_url, page=page,
+                    duration_ms=cdp_duration_ms, response_size=response_size,
+                    raw_response_path=raw_path,
+                )
+
+            except Exception as e:
+                logger.error(f"CDP 请求异常: {url} {e}", exc_info=True)
+                self.storage.mark_request_failed(request_id, str(e), status_code=None)
+                self.state_machine.mark_failed(queue_id, ERROR_NETWORK, str(e))
+                self._release_proxy(proxy_record, success=False)
+                if page is not None and self.cdp_browser is not None and not self.keep_browser_open:
+                    try:
+                        await self._close_page_with_hook(page, parser)
+                    except Exception:
+                        pass
+                return "failed"
 
         # === HTTP 模式 ===
         if fetch_mode == "http":
@@ -459,12 +548,16 @@ class RequestPool:
         url = task["url"]
 
         # === Layer 1: config 全局默认 ===
-        merged_headers = {
-            "User-Agent": self.config.get(
+        if self.config.get_bool("anti_bot_random_ua", False):
+            ua = self._get_random_ua()
+        else:
+            ua = self.config.get(
                 "http_user_agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            ),
+            )
+        merged_headers = {
+            "User-Agent": ua,
         }
         default_headers_str = self.config.get("http_default_headers", "{}")
         try:
@@ -568,6 +661,30 @@ class RequestPool:
 
     # ---------------- 反爬 ----------------
 
+    def _get_random_ua(self) -> str:
+        """获取随机 User-Agent，优先 fake-useragent，降级到静态池。"""
+        try:
+            from fake_useragent import UserAgent
+
+            platforms_str = self.config.get("anti_bot_ua_platforms", "windows,macos")
+            browsers_str = self.config.get("anti_bot_ua_browsers", "chrome,edge")
+            _ua = UserAgent(
+                os=[p.strip() for p in platforms_str.split(",")],
+                browsers=[b.strip() for b in browsers_str.split(",")],
+            )
+            ua_str = _ua.random
+            if ua_str:
+                return ua_str
+        except Exception:
+            pass
+
+        import random
+        return random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
+        ])
+
     def _apply_anti_bot(self, proxy_record: Any | None) -> dict[str, str]:
         """应用反爬处理：随机 UA / Referer / Cookie。
 
@@ -575,7 +692,7 @@ class RequestPool:
         """
         headers: dict[str, str] = {}
         # 随机 UA
-        ua = random.choice(_UA_POOL)
+        ua = self._get_random_ua()
         headers["User-Agent"] = ua
         # 随机延迟已在 RateLimiter 处理
         logger.debug(f"反爬 UA: {ua[:40]}...")

@@ -38,6 +38,7 @@ def test_fetch_http_three_layer_merge():
     config.init_defaults()
     config.set("http_user_agent", "ConfigUA/1.0")
     config.set("http_default_headers", '{"X-Default": "from-config"}')
+    config.set("anti_bot_random_ua", "false")
 
     state_machine = StateMachine(storage, config)
     rp = RequestPool(storage, config, state_machine)
