@@ -776,9 +776,8 @@ class RequestPool:
         logger.info(f"[fetch_raw_html] new_page 完成")
 
         # Parser 生命周期钩子（goto 前注入 JS 脚本）
-        # show_window 调试模式时跳过守卫脚本，避免死循环
         on_page_created = getattr(parser, "on_page_created", None)
-        if on_page_created is not None and not show_window:
+        if on_page_created is not None:
             await on_page_created(page, url)
 
         timeout_ms = self.config.get_int("request_timeout", 30) * 1000
