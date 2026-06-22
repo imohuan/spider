@@ -114,7 +114,7 @@ class ProxyPool:
                 (STATUS_IDLE, now_iso),
             ).fetchone()
             if row is None:
-                logger.warning("代理池无可用 IP")
+                logger.debug("代理池无可用 IP")
                 return None
             conn.execute(
                 "UPDATE proxy_pool SET status = ?, last_used_at = ? WHERE id = ?",
@@ -189,15 +189,21 @@ class ProxyPool:
             alive = await self._check_ip_alive(rec)
             if alive:
                 expire_at = (datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)).isoformat()
-                with self.storage.get_connection() as conn:
-                    conn.execute(
-                        "INSERT INTO proxy_pool (ip, port, protocol, city, username, password, "
-                        " expire_at, use_count, max_use, status, fail_count) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'in_use', 0)",
-                        (rec.ip, rec.port, rec.protocol or 'http',
-                         rec.city, rec.username, rec.password, expire_at, self.max_use),
-                    )
-                    rec.id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                try:
+                    with self.storage.get_connection() as conn:
+                        conn.execute(
+                            "INSERT INTO proxy_pool (ip, port, protocol, city, username, password, "
+                            " expire_at, last_used_at, use_count, max_use, status, fail_count) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'in_use', 0)",
+                            (rec.ip, rec.port, rec.protocol or 'http',
+                             rec.city, rec.username, rec.password, expire_at, _now_iso(), self.max_use),
+                        )
+                        rec.id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                except Exception as e:
+                    logger.error(f"入库 IP 失败: {rec.ip}:{rec.port}: {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(0.5)
+                    continue
                 logger.info(f"购买并验证 IP: {rec.ip}:{rec.port}")
                 return rec
             else:
