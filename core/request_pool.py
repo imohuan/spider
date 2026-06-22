@@ -782,7 +782,18 @@ class RequestPool:
 
         # 调试：弹到前台方便观察
         if show_window:
-            await page.bring_to_front()
+            try:
+                await page.bring_to_front()
+                # 强制 OS 级别窗口前置（Windows 专用）
+                await page.evaluate("window.focus();")
+                # 闪烁标题栏提示
+                await page.evaluate(
+                    "document.title = '>>> 测试中 <<< ' + document.title; "
+                    "setTimeout(() => { document.title = document.title.replace('>>> 测试中 <<< ', ''); }, 800);"
+                )
+                await asyncio.sleep(0.3)
+            except Exception:
+                pass  # 弹窗失败不影响抓取
 
         browser_duration_ms = int((time.monotonic() - browser_start) * 1000)
 
