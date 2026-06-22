@@ -26,8 +26,8 @@ def fake(storage):
 
 # ---------------- no-op 写入方法 ----------------
 
-def test_enqueue_returns_none(fake, storage):
-    assert fake.enqueue("http://example.com/test") is None
+def test_enqueue_returns_minus_one(fake, storage):
+    assert fake.enqueue("http://example.com/test") == -1
     # 验证未写入底层 DB
     count = storage.execute("SELECT COUNT(*) FROM queue", fetch="one")[0]
     assert count == 0
@@ -85,7 +85,8 @@ def test_get_connection_delegates(fake):
         assert isinstance(conn, sqlite3.Connection)
 
 
-def test_cursor_raises_attribute_error(fake):
+def test_no_cursor_accessor_should_use_get_connection(fake):
+    """FakeStorage 仅通过 get_connection() 暴露 DB 访问。"""
     with pytest.raises(AttributeError):
         fake.cursor()
 
