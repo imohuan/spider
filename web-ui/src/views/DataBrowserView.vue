@@ -59,6 +59,10 @@ const exportCsv = () => {
 onMounted(async () => {
   restoreFromQuery()
   await fetchTables()
+  if (!selectedTable.value && tables.value.length) {
+    const firstWithData = tables.value.find(t => t.rows > 0)
+    selectedTable.value = firstWithData ? firstWithData.name : tables.value[0].name
+  }
   if (selectedTable.value) fetchData()
 })
 </script>
