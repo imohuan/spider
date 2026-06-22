@@ -14,10 +14,6 @@ const fetchAll = async () => {
   try { parsers.value = await parsersApi.list() } catch {}
 }
 
-const doToggle = async (name: string) => {
-  try { await parsersApi.toggle(name); triggerNotify(`已切换 ${name}`, 'success'); fetchAll() } catch {}
-}
-
 const doRescan = async () => {
   try { await parsersApi.rescan(); triggerNotify('重新扫描完成', 'success'); fetchAll() } catch {}
 }
@@ -47,7 +43,6 @@ onMounted(fetchAll)
         </div>
         <div class="flex gap-ax-xs">
           <AxButton variant="outline" size="lg" icon="play_arrow" @click="doTest(p.name)">测试 URL</AxButton>
-          <AxButton variant="ghost" size="lg" icon="sync" @click="doToggle(p.name)">切换</AxButton>
         </div>
       </div>
       <div v-if="parsers.length === 0" class="col-span-2 text-center py-ax-xl text-secondary text-sm">暂无注册 Parser</div>

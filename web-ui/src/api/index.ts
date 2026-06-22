@@ -64,7 +64,6 @@ export const logsApi = {
 
 export const parsersApi = {
   list: () => api.get('/parsers'),
-  toggle: (name: string) => api.post(`/parsers/${name}/toggle`),
   rescan: () => api.post('/parsers/rescan'),
   test: (name: string, url: string) => api.post(`/parsers/${name}/test`, { url }),
 }

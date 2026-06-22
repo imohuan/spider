@@ -1,4 +1,4 @@
-"""Parser 注册表 API — 查看、重新扫描、切换 Parser 状态。"""
+"""Parser 注册表 API — 查看、重新扫描。"""
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, request, current_app
@@ -56,12 +56,6 @@ def list_parsers():
         })
     logger.info(f"GET /api/parsers → {len(result)} 个 Parser")
     return jsonify(result)
-
-
-@bp.route("/<name>/toggle", methods=["POST"])
-def toggle(name: str):
-    logger.info(f"POST /api/parsers/{name}/toggle")
-    return jsonify({"ok": True, "name": name})
 
 
 @bp.route("/rescan", methods=["POST"])
