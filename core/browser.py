@@ -77,6 +77,12 @@ class CrawlerBrowser:
         self._interceptor = Interceptor(config)
         self._lock = asyncio.Lock()
 
+        # 反检测配置（缓存，避免每次 new_page 都读 config）
+        self._use_random_ua: bool = self.config.get_bool("anti_bot_random_ua", False)
+        self._use_stealth: bool = self.config.get_bool("anti_bot_stealth", True)
+        self._delay_min: float = self.config.get_float("anti_bot_delay_page_min", 1.0)
+        self._delay_max: float = self.config.get_float("anti_bot_delay_page_max", 3.0)
+
     async def start(self) -> None:
         """启动 Playwright 与浏览器实例（含 stealth 反检测 + 系统 Chrome）。"""
         from playwright.async_api import async_playwright
@@ -141,18 +147,19 @@ class CrawlerBrowser:
 
         # headless 时必须伪装 UA（默认 UA 含 "HeadlessChrome" 直接暴露）
         if self.headless:
-            context_kwargs["user_agent"] = (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            )
+            context_kwargs["user_agent"] = self._get_random_ua()
             # headless 模式下 window 尺寸为 0，需显式设置
             context_kwargs["viewport"] = {"width": 1366, "height": 768}
 
+        if self._use_random_ua:
+            context_kwargs["user_agent"] = self._get_random_ua()
+
         context = await self._browser.new_context(**context_kwargs)
         # 注入 stealth 反检测脚本
-        if self._stealth is not None:
+        if self._use_stealth and self._stealth is not None:
             await self._stealth.apply_stealth_async(context)
+        elif not self._use_stealth:
+            logger.debug("anti_bot_stealth=false，跳过 stealth 注入")
 
         page = await context.new_page()
         # 注入资源拦截器
@@ -163,6 +170,39 @@ class CrawlerBrowser:
             logger.debug(f"goto {url} timeout={timeout_ms}ms")
             await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         return page
+
+    def _get_random_ua(self) -> str:
+        """获取随机 User-Agent，优先 fake-useragent，降级到静态池。"""
+        try:
+            from fake_useragent import UserAgent
+
+            platforms_str = self.config.get("anti_bot_ua_platforms", "windows,macos")
+            browsers_str = self.config.get("anti_bot_ua_browsers", "chrome,edge")
+            _ua = UserAgent(
+                os=[p.strip() for p in platforms_str.split(",")],
+                browsers=[b.strip() for b in browsers_str.split(",")],
+            )
+            ua_str = _ua.random
+            if ua_str:
+                logger.debug(f"随机 UA: {ua_str[:80]}...")
+                return ua_str
+        except Exception as e:
+            logger.debug(f"fake-useragent 不可用，降级静态 UA 池: {e}")
+
+        # 降级：静态 UA 池
+        import random as _random
+        return _random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        ])
+
+    async def random_delay(self) -> None:
+        """页面内操作的随机延迟，模拟人类操作间隔。"""
+        import random as _random
+        delay = _random.uniform(self._delay_min, self._delay_max)
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def close_page(self, page: Any) -> None:
         """关闭 page 及其 context。"""
