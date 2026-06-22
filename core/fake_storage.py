@@ -61,19 +61,11 @@ class FakeStorage:
     def get_connection(self):
         return self._real.get_connection()
 
-    def cursor(self):
-        # Storage 没有 cursor() 方法，但部分调用方可能需要
-        raise AttributeError("'FakeStorage' object has no attribute 'cursor'")
-
     def close(self):
         pass  # 不关闭底层连接
 
     def init_db(self):
         pass  # no-op
-
-    def auto_clean(self):
-        if hasattr(self._real, "auto_clean"):
-            return self._real.auto_clean()
 
     # --------------- 上下文管理器 ---------------
 
