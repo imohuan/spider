@@ -48,7 +48,8 @@ def test_url():
 
         {
             "url": "https://cd.58.com/shangpu/xxx.shtml",
-            "parser": "ShengyiZRDetailParser"   // 可选, 不传则自动匹配
+            "parser": "ShengyiZRDetailParser",   // 可选, 不传则自动匹配
+            "show_window": true                   // 可选, 显示浏览器窗口（调试用）
         }
 
     Response::
@@ -77,6 +78,7 @@ def test_url():
 
     url = data["url"].strip()
     parser_name = (data.get("parser") or "").strip()
+    show_window = bool(data.get("show_window", False))
 
     components = current_app.config.get("CRAWLER_COMPONENTS", {})
     registry = components.get("registry")
@@ -128,7 +130,8 @@ def test_url():
 
     logger.info(
         f"POST /api/config/test-url parser={parser.__class__.__name__} "
-        f"requires_browser={requires_browser} fetch_mode={fetch_mode} url={url[:80]}"
+        f"requires_browser={requires_browser} fetch_mode={fetch_mode} "
+        f"show_window={show_window} url={url[:80]}"
     )
 
     # ── 3. 注入 FakeStorage，防止副作用 ──
@@ -144,7 +147,7 @@ def test_url():
 
         # Fetch
         if request_pool is not None:
-            fetch_result = await request_pool.fetch_raw_html(url, parser, fetch_mode)
+            fetch_result = await request_pool.fetch_raw_html(url, parser, fetch_mode, show_window=show_window)
             html = fetch_result["html"]
             fetch_duration_ms = fetch_result.get("duration_ms", 0)
         elif fetch_mode == "browser":

@@ -13,6 +13,7 @@ const { items: historyItems, add: addHistory, remove: removeHistory, clearAll: c
 
 // ── 测试配置 ──
 const testUrl = ref('')
+const showWindow = ref(false)
 const testRunning = ref(false)
 const testResult = ref<any>(null)
 
@@ -24,6 +25,7 @@ async function runTest() {
 
   const payload: any = {
     url: testUrl.value.trim(),
+    show_window: showWindow.value,
   }
   if (props.parserName) payload.parser = props.parserName
 
@@ -147,17 +149,26 @@ const resultColumns = computed(() => {
                 <span class="material-symbols-outlined text-[16px] text-primary">link</span>
                 <span class="font-label-md text-label-md font-semibold text-primary">请求 URL</span>
               </div>
-              <div class="flex gap-ax-xs">
-                <AxInput v-model="testUrl" size="lg" placeholder="https://cd.58.com/shangpu/xxx.shtml" class="flex-1" />
-                <AxButton
-                  variant="primary"
-                  size="lg"
-                  icon="play_arrow"
-                  :loading="testRunning"
-                  :disabled="!testUrl.trim()"
-                  @click="runTest"
-                >发送请求</AxButton>
+              <div class="flex items-center gap-ax-md">
+                <div class="flex-1 flex gap-ax-xs">
+                  <AxInput v-model="testUrl" size="lg" placeholder="https://cd.58.com/shangpu/xxx.shtml" class="flex-1" />
+                  <AxButton
+                    variant="primary"
+                    size="lg"
+                    icon="play_arrow"
+                    :loading="testRunning"
+                    :disabled="!testUrl.trim()"
+                    @click="runTest"
+                  >发送请求</AxButton>
+                </div>
               </div>
+              <!-- 显示浏览器窗口开关 -->
+              <label class="flex items-center gap-ax-xs cursor-pointer select-none text-[12px] text-secondary hover:text-primary transition-colors">
+                <input type="checkbox" v-model="showWindow" class="w-4 h-4 rounded border-outline-variant text-primary cursor-pointer" />
+                <span class="material-symbols-outlined text-[16px]">visibility</span>
+                <span>显示浏览器窗口</span>
+                <span class="text-[10px] text-outline">(调试用，仅 browser 模式生效)</span>
+              </label>
             </section>
 
             <!-- 模式信息（后端返回后展示） -->

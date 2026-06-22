@@ -756,9 +756,10 @@ class RequestPool:
 
     # ---------------- 原始 HTML 获取（无 DB 写入）----------------
 
-    async def fetch_raw_html(self, url: str, parser: Any, fetch_mode: str = "browser") -> dict:
+    async def fetch_raw_html(self, url: str, parser: Any, fetch_mode: str = "browser", show_window: bool = False) -> dict:
         """Get raw HTML without DB writes. For test-url debugging.
 
+        :param show_window: 如果 True，goto 后将页面弹到前台（仅 browser 模式生效）
         Returns dict: {html, duration_ms, ...}
         """
         if fetch_mode == "http":
@@ -778,6 +779,11 @@ class RequestPool:
 
         timeout_ms = self.config.get_int("request_timeout", 30) * 1000
         await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+
+        # 调试：弹到前台方便观察
+        if show_window:
+            await page.bring_to_front()
+
         browser_duration_ms = int((time.monotonic() - browser_start) * 1000)
 
         # Parser 生命周期钩子（滚动懒加载等）

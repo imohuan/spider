@@ -47,7 +47,8 @@ export const configApi = {
   /** 测试 URL — 走完整 Parser pipeline（browser 模式可能较慢，60s 超时） */
   testUrl: (payload: {
     url: string
-    parser?: string   // 可选, 从 Parser 卡片进入时携带
+    parser?: string       // 可选, 从 Parser 卡片进入时携带
+    show_window?: boolean // 可选, 显示浏览器窗口（调试用）
   }) => http.post('/config/test-url', payload, { timeout: 60000 }),
   /** 测试 AI 服务连接 */
   testAi: () => api.post('/config/test-ai'),
