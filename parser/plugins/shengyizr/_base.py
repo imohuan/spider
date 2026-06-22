@@ -69,6 +69,7 @@ class SimplePageParser(BaseParser):
     """
 
     url_pattern = r"\.58\.com"
+    requires_browser = True
     table_name = "test_pages"
     table_schema = """
         CREATE TABLE test_pages (
