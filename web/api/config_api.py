@@ -212,7 +212,12 @@ def test_url():
         }
 
     try:
-        result = asyncio.run(_do())
+        # 使用持久事件循环（避免 asyncio.Lock 跨循环死锁）
+        event_loop_obj = components.get("event_loop")
+        if event_loop_obj and not event_loop_obj.is_closed():
+            result = event_loop_obj.run_until_complete(_do())
+        else:
+            result = asyncio.run(_do())
         if isinstance(result, tuple):
             return result
         is_ok = result.get("ok", False)

@@ -145,6 +145,7 @@ app.config["CRAWLER_COMPONENTS"] = {
     "scheduler": scheduler,
     "browser": browser,
     "request_pool": request_pool,
+    "event_loop": _event_loop,  # 持久事件循环，避免 asyncio.Lock 跨循环死锁
 }
 
 # 注入 Scheduler 引用给爬虫控制 API
