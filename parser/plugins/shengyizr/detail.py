@@ -213,7 +213,12 @@ class ShengyiZRDetailParser(SimplePageParser):
             "//div[contains(@class,'general-tupian')]//ul[contains(@class,'general-pic-list')]//img",
             "src",
         )
-        row["photos"] = "|".join(dict.fromkeys(imgs)) if imgs else ""
+        unique_imgs = list(dict.fromkeys(imgs)) if imgs else []
+        row["photos"] = "|".join(unique_imgs) if unique_imgs else ""
+
+        # 将图片推入下载队列
+        for img_url in unique_imgs:
+            self.storage.enqueue_image(img_url, max_retry=3)
 
         return [row]
 

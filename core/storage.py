@@ -500,7 +500,10 @@ class Storage:
                 logger.info(f"业务表已创建: {table_name}")
 
     def save_business_data(self, table_name: str, rows: list[dict]) -> None:
-        """批量插入业务数据。
+        """批量插入或替换业务数据（upsert 语义）。
+
+        使用 INSERT OR REPLACE，当唯一键/主键冲突时自动替换旧行，
+        避免重试任务时因重复数据报 UNIQUE constraint failed。
 
         :param table_name: 目标表名（必须已通过 ensure_business_table 创建）
         :param rows: dict 列表，每个 dict 的 key 为列名，value 为值。
@@ -515,7 +518,7 @@ class Storage:
             _validate_identifier(c)
         col_str = ",".join(columns)
         placeholders = ",".join("?" * len(columns))
-        sql = f"INSERT INTO {table_name} ({col_str}) VALUES ({placeholders})"
+        sql = f"INSERT OR REPLACE INTO {table_name} ({col_str}) VALUES ({placeholders})"
         params_list = [tuple(row.get(c) for c in columns) for row in rows]
         with self._lock:
             self._conn.executemany(sql, params_list)

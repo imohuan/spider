@@ -509,6 +509,27 @@ def test_save_business_data_chinese_values(storage):
     assert [r[0] for r in rows] == ["中文标题", "另一标题"]
 
 
+def test_save_business_data_upsert_on_duplicate_unique(storage):
+    """唯一键冲突时应自动替换旧行（INSERT OR REPLACE），不应报错。"""
+    storage.ensure_business_table(
+        "t_upsert",
+        "CREATE TABLE t_upsert (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT UNIQUE, title TEXT)",
+    )
+    # 首次插入
+    storage.save_business_data("t_upsert", [{"url": "http://a.com", "title": "old"}])
+    row1 = storage.execute("SELECT url, title FROM t_upsert WHERE url = ?", ("http://a.com",), fetch="one")
+    assert row1["title"] == "old"
+
+    # 重复插入同一 URL —— 应替换旧行，不报 UNIQUE constraint failed
+    storage.save_business_data("t_upsert", [{"url": "http://a.com", "title": "new"}])
+    row2 = storage.execute("SELECT url, title FROM t_upsert WHERE url = ?", ("http://a.com",), fetch="one")
+    assert row2["title"] == "new"
+
+    # 行数仍为 1（替换而非新增）
+    count = storage.execute("SELECT COUNT(*) FROM t_upsert", fetch="one")[0]
+    assert count == 1
+
+
 # ---------------- get_connection 上下文管理器 ----------------
 
 def test_get_connection_yields_sqlite_connection(storage):
