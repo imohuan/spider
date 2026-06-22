@@ -1,10 +1,10 @@
-"""代理池模块 - 管理代理 IP 生命周期：拉取 → 分配 → 回收 → 健康检查 → 淘汰。
+"""代理池模块 - 管理代理 IP 生命周期：JIT 购买 → 分配 → 回收 → 健康检查 → 淘汰。
 
 按设计文档 4.3 实现 ``ProxyPool``：
 
 - **生命周期**::
 
-      [补充] 池中可用 IP < 阈值 → 调 provider 拉新 IP → 入池
+      [JIT 购买] acquire_async 检测池空 → 当场调 provider.fetch_async 买 1 个 IP → 验证连通性 → 入池
       [分配] RequestPool 申请 → 取 idle/未过期/use_count<max_use 的 IP → 标记 in_use
       [回收-成功] use_count+1, 未超限→idle, 超限→dead
       [回收-失败] fail_count+1, fail_count>=3→dead, 否则→cooldown(cooldown_until=now+冷却)
@@ -18,10 +18,12 @@
 """
 from __future__ import annotations
 
+import asyncio
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+import httpx
 
 from core.config_manager import ConfigManager
 from core.logger import get_logger
@@ -62,9 +64,9 @@ class ProxyPool:
         self.storage = storage
         self.config = config
         self.provider = provider
-        self._lock = threading.Lock()  # 保护 _supplement 后台线程启动标记
-        self._supplement_thread: threading.Thread | None = None
-        self._supplement_stop = threading.Event()
+        self._lock = threading.Lock()  # 保护线程启动标记
+        self._health_thread: threading.Thread | None = None
+        self._health_stop = threading.Event()
 
     # ---------------- 配置读取 ----------------
 
@@ -95,26 +97,16 @@ class ProxyPool:
 
     # ---------------- 分配 ----------------
 
-    def acquire(self) -> ProxyRecord | None:
-        """申请一个可用 IP，标记为 ``in_use``。
+    def _acquire_from_pool(self) -> ProxyRecord | None:
+        """从池中获取一个可用 IP 并标记为 in_use。
 
-        选取规则：
-        - status = idle
-        - 未过期（expire_at > now）
-        - use_count < max_use
-
-        :return: ``ProxyRecord`` 或 ``None``（池空 / 禁用 / 无可用）
+        :return: ``ProxyRecord`` 或 ``None``（池空 / 无可用）
         """
-        if not self.enabled:
-            logger.debug("proxy_enabled=false，acquire 返回 None（直连模式）")
-            return None
-        # 触发一次低水位补充（同步，简单实现）
-        if self._available_count() < self.fetch_num:
-            self._supplement()
         now_iso = _now_iso()
         with self.storage.get_connection() as conn:
             row = conn.execute(
-                "SELECT id, ip, port, protocol, city, expire_at, use_count, max_use "
+                "SELECT id, ip, port, protocol, city, expire_at, use_count, max_use, "
+                "       username, password "
                 "FROM proxy_pool "
                 "WHERE status = ? AND expire_at > ? AND use_count < max_use "
                 "ORDER BY last_used_at NULLS FIRST, fetched_at ASC "
@@ -137,9 +129,82 @@ class ProxyPool:
                 expire_at=row["expire_at"],
                 use_count=row["use_count"],
                 max_use=row["max_use"],
+                username=row["username"],
+                password=row["password"],
             )
         logger.debug(f"acquire IP: {rec.ip}:{rec.port} (use_count={rec.use_count})")
         return rec
+
+    def acquire(self) -> ProxyRecord | None:
+        """申请一个可用 IP，标记为 ``in_use``（仅从池中取，不触发购买）。
+
+        :return: ``ProxyRecord`` 或 ``None``（池空 / 禁用 / 无可用）
+        """
+        if not self.enabled:
+            logger.debug("proxy_enabled=false，acquire 返回 None（直连模式）")
+            return None
+        return self._acquire_from_pool()
+
+    async def _check_ip_alive(self, rec: ProxyRecord, timeout: float = 3.0) -> bool:
+        """检测 IP 连通性。用 IP 做代理发 HTTP GET，3 秒超时。"""
+        auth = f"{rec.username}:{rec.password}@" if rec.username and rec.password else ""
+        proxy_url = f"http://{auth}{rec.ip}:{rec.port}"
+        try:
+            async with httpx.AsyncClient(proxy=proxy_url, timeout=httpx.Timeout(timeout)) as client:
+                resp = await client.get("http://httpbin.org/ip")
+                return resp.status_code == 200
+        except Exception as e:
+            logger.debug(f"IP 检测失败 {rec.ip}:{rec.port}: {e}")
+            return False
+
+    async def acquire_async(self) -> ProxyRecord | None:
+        """异步申请 IP。池中有则直接用，池空则当场买 1 个并验证连通性。
+
+        :return: ProxyRecord 或 None
+        """
+        if not self.enabled:
+            return None
+
+        rec = self._acquire_from_pool()
+        if rec is not None:
+            return rec
+
+        if self.provider is None:
+            return None
+
+        for attempt in range(3):
+            try:
+                records = await self.provider.fetch_async(num=1)
+            except Exception as e:
+                logger.error(f"购买 IP 失败 (attempt {attempt+1}/3): {e}")
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                continue
+            if not records:
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                continue
+            rec = records[0]
+
+            alive = await self._check_ip_alive(rec)
+            if alive:
+                expire_at = (datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)).isoformat()
+                with self.storage.get_connection() as conn:
+                    conn.execute(
+                        "INSERT INTO proxy_pool (ip, port, protocol, city, username, password, "
+                        " expire_at, use_count, max_use, status, fail_count) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'in_use', 0)",
+                        (rec.ip, rec.port, rec.protocol or 'http',
+                         rec.city, rec.username, rec.password, expire_at, self.max_use),
+                    )
+                    rec.id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                logger.info(f"购买并验证 IP: {rec.ip}:{rec.port}")
+                return rec
+            else:
+                logger.warning(f"IP 不可用: {rec.ip}:{rec.port} (attempt {attempt+1}/3)")
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+        return None
 
     # ---------------- 回收 ----------------
 
@@ -206,7 +271,7 @@ class ProxyPool:
             f"release_fail IP={record.ip} fail_count={new_fail} → {new_status}"
         )
 
-    # ---------------- 补充 ----------------
+    # ---------------- 统计 / 查询 ----------------
 
     def _available_count(self) -> int:
         """当前可用（idle + 未过期）IP 数。"""
@@ -218,42 +283,6 @@ class ProxyPool:
             fetch="one",
         )
         return row[0] if row else 0
-
-    def _supplement(self) -> int:
-        """调用 provider 拉取新 IP 入池。
-
-        :return: 实际入库的 IP 数
-        """
-        if self.provider is None:
-            logger.debug("无 provider 配置，跳过补充")
-            return 0
-        try:
-            records = self.provider.fetch(num=self.fetch_num, ttl=self.ttl_seconds)
-        except Exception as e:
-            logger.error(f"provider.fetch 失败: {e}", exc_info=True)
-            return 0
-        if not records:
-            logger.warning("provider 返回空 IP 列表")
-            return 0
-        inserted = 0
-        expire_at = (datetime.now(timezone.utc)
-                     + timedelta(seconds=self.ttl_seconds)).isoformat()
-        with self.storage.get_connection() as conn:
-            for rec in records:
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO proxy_pool "
-                        "(ip, port, protocol, city, expire_at, use_count, max_use, "
-                        " status, fail_count) "
-                        "VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)",
-                        (rec.ip, rec.port, rec.protocol or "http",
-                         rec.city, expire_at, self.max_use, STATUS_IDLE),
-                    )
-                    inserted += 1
-                except Exception as e:
-                    logger.warning(f"插入 IP {rec.ip}:{rec.port} 失败: {e}")
-        logger.info(f"补充 {inserted} 个新 IP 入池")
-        return inserted
 
     # ---------------- 健康检查 ----------------
 
@@ -299,13 +328,13 @@ class ProxyPool:
     def start_health_check_loop(self) -> None:
         """启动后台健康检查线程（每 health_interval 秒一次）。"""
         with self._lock:
-            if self._supplement_thread is not None:
+            if self._health_thread is not None:
                 logger.warning("健康检查线程已启动")
                 return
         interval = self.health_interval
 
         def _loop():
-            while not self._supplement_stop.wait(interval):
+            while not self._health_stop.wait(interval):
                 try:
                     self.health_check()
                 except Exception as e:
@@ -313,19 +342,23 @@ class ProxyPool:
 
         t = threading.Thread(target=_loop, daemon=True, name="proxy-health")
         with self._lock:
-            self._supplement_thread = t
+            self._health_thread = t
         t.start()
         logger.info(f"健康检查线程已启动，间隔 {interval}s")
 
     def stop_health_check_loop(self) -> None:
         """停止后台健康检查线程。"""
-        self._supplement_stop.set()
         with self._lock:
-            t = self._supplement_thread
-            self._supplement_thread = None
+            t = self._health_thread
+            self._health_thread = None
         if t is not None:
-            t.join(timeout=5)
-            logger.info("健康检查线程已停止")
+            self._health_stop.set()
+            t.join(timeout=10)
+            if t.is_alive():
+                logger.warning("健康检查线程未能在超时内停止")
+                with self._lock:
+                    if self._health_thread is None:
+                        self._health_thread = t  # 恢复引用，防止重复启动
 
     # ---------------- 统计 ----------------
 

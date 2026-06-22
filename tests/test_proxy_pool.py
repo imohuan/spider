@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio as _asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -116,39 +117,10 @@ def test_acquire_empty_pool_no_longer_triggers_supplement(pool, mock_provider):
     assert rec is None  # 池空直接返回 None
 
 
-def test_warmup_triggers_supplement(pool, mock_provider):
-    """warmup 冷启动同步预填充。"""
-    count = pool.warmup()
-    mock_provider.fetch.assert_called_once()
-    assert count == 3  # 池空，需补 3 个（fetch_num=3），mock 返回 3 个
-    rec = pool.acquire()
-    assert rec is not None
-    assert rec.ip == "1.1.1.1"
-
-
-def test_warmup_skips_when_pool_sufficient(pool, storage, mock_provider):
-    """池中已有足够 IP 时 warmup 跳过。"""
-    # fetch_num 默认 3，插入 3 个使其达到阈值
-    for i in range(3):
-        _insert_ip(storage, f"10.0.0.{i}")
-    count = pool.warmup()
-    mock_provider.fetch.assert_not_called()
-    assert count == 0
-
-
-def test_warmup_disabled_returns_zero(storage, cfg):
-    """proxy_enabled=false 时 warmup 返回 0。"""
-    cfg.set("proxy_enabled", "false")
-    p = ProxyPool(storage, cfg, None)
-    assert p.warmup() == 0
-
-
 def test_acquire_marks_in_use(pool, storage):
     """acquire 后 status 变为 in_use。"""
     pid = _insert_ip(storage, "10.0.0.1")
-    # 让 _available_count 不触发补充
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     assert rec is not None
     assert rec.ip == "10.0.0.1"
     assert _get_pool_field(storage, pid, "status") == STATUS_IN_USE
@@ -176,8 +148,7 @@ def test_acquire_skips_max_use_reached(storage, cfg):
 
 def test_release_success_increments_use_count(pool, storage):
     pid = _insert_ip(storage, "10.0.0.1", use_count=0, max_use=3)
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     pool.release_success(rec)
     assert _get_pool_field(storage, pid, "use_count") == 1
     assert _get_pool_field(storage, pid, "status") == STATUS_IDLE
@@ -185,8 +156,7 @@ def test_release_success_increments_use_count(pool, storage):
 
 def test_release_success_reaches_max_use_marks_dead(pool, storage):
     pid = _insert_ip(storage, "10.0.0.1", use_count=2, max_use=3)
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     pool.release_success(rec)
     assert _get_pool_field(storage, pid, "use_count") == 3
     assert _get_pool_field(storage, pid, "status") == STATUS_DEAD
@@ -206,8 +176,7 @@ def test_release_success_rejects_non_in_use(pool, storage):
 
 def test_release_fail_first_marks_cooldown(pool, storage, cfg):
     pid = _insert_ip(storage, "10.0.0.1", use_count=0, max_use=3, fail_count=0)
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     pool.release_fail(rec)
     assert _get_pool_field(storage, pid, "fail_count") == 1
     assert _get_pool_field(storage, pid, "status") == STATUS_COOLDOWN
@@ -216,8 +185,7 @@ def test_release_fail_first_marks_cooldown(pool, storage, cfg):
 
 def test_release_fail_third_marks_dead(pool, storage):
     pid = _insert_ip(storage, "10.0.0.1", use_count=0, max_use=3, fail_count=2)
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     pool.release_fail(rec)
     assert _get_pool_field(storage, pid, "fail_count") == 3
     assert _get_pool_field(storage, pid, "status") == STATUS_DEAD
@@ -226,8 +194,7 @@ def test_release_fail_third_marks_dead(pool, storage):
 def test_release_fail_no_cooldown_marks_dead_directly(pool, storage):
     """cooldown=False 直接 dead。"""
     pid = _insert_ip(storage, "10.0.0.1", use_count=0, max_use=3, fail_count=0)
-    with patch.object(pool, "_supplement", return_value=0):
-        rec = pool.acquire()
+    rec = pool.acquire()
     pool.release_fail(rec, cooldown=False)
     assert _get_pool_field(storage, pid, "status") == STATUS_DEAD
 
@@ -272,127 +239,6 @@ def test_health_check_disabled_returns_zero(storage, cfg):
     p = ProxyPool(storage, cfg, None)
     result = p.health_check()
     assert result == {"expired": 0, "cooldown_recovered": 0, "dead_purged": 0}
-
-
-# ---------------- 补充 ----------------
-
-
-def test_supplement_no_provider_skips(storage, cfg):
-    """无 provider 时 _supplement 返回 0。"""
-    p = ProxyPool(storage, cfg, None)
-    assert p._supplement() == 0
-
-
-def test_supplement_provider_error_returns_zero(storage, cfg):
-    """provider 抛异常时 _supplement 返回 0。"""
-    bad = MagicMock()
-    bad.fetch.side_effect = RuntimeError("api down")
-    p = ProxyPool(storage, cfg, bad)
-    assert p._supplement() == 0
-
-
-def test_supplement_inserts_records(storage, cfg):
-    provider = MagicMock()
-    provider.fetch.return_value = [
-        ProxyRecord(ip="1.1.1.1", port=8080),
-        ProxyRecord(ip="2.2.2.2", port=8080),
-    ]
-    p = ProxyPool(storage, cfg, provider)
-    count = p._supplement()
-    assert count == 2
-    rows = storage.execute("SELECT ip FROM proxy_pool", fetch="all")
-    assert len(rows) == 2
-
-
-def test_supplement_dedupes_by_ip_port(storage, cfg):
-    """INSERT OR IGNORE 对同 ip:port 去重。"""
-    _insert_ip(storage, "1.1.1.1", port=8080)
-    provider = MagicMock()
-    provider.fetch.return_value = [
-        ProxyRecord(ip="1.1.1.1", port=8080),  # 重复
-        ProxyRecord(ip="2.2.2.2", port=8080),
-    ]
-    p = ProxyPool(storage, cfg, provider)
-    p._supplement()
-    rows = storage.execute("SELECT ip FROM proxy_pool", fetch="all")
-    assert len(rows) == 2
-
-
-# ---------------- stats ----------------
-
-
-def test_supplement_loop_fills_pool_when_low(storage, cfg):
-    """后台补充线程在低水位时自动拉取 IP。"""
-    cfg.set("proxy_supplement_interval", "1")  # 加速，避免 CI 不稳定
-    provider = MagicMock()
-    provider.fetch.return_value = [ProxyRecord(ip="1.1.1.1", port=8080)]
-    p = ProxyPool(storage, cfg, provider)
-    p._last_acquire_time = time.monotonic()  # 模拟有人在用
-    p.start_supplement_loop()
-    try:
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if p._available_count() > 0:
-                break
-            time.sleep(0.1)
-        assert p._available_count() > 0
-        assert provider.fetch.called
-    finally:
-        p.stop_supplement_loop()
-
-
-def test_supplement_loop_skips_when_idle(storage, cfg):
-    """无人使用 IP 时补充线程不拉取（避免闲置白花钱）。"""
-    cfg.set("proxy_supplement_interval", "1")
-    provider = MagicMock()
-    provider.fetch.return_value = [ProxyRecord(ip="1.1.1.1", port=8080)]
-    p = ProxyPool(storage, cfg, provider)
-    p.start_supplement_loop()
-    try:
-        time.sleep(1.5)  # 至少一轮
-        provider.fetch.assert_not_called()
-    finally:
-        p.stop_supplement_loop()
-
-
-def test_supplement_loop_skips_when_disabled(storage, cfg):
-    """proxy_enabled=false 时补充线程不拉取。"""
-    cfg.set("proxy_enabled", "false")
-    cfg.set("proxy_supplement_interval", "1")  # 加速
-    provider = MagicMock()
-    p = ProxyPool(storage, cfg, provider)
-    p.start_supplement_loop()
-    try:
-        time.sleep(1.5)  # > interval，线程必须已执行一轮
-        provider.fetch.assert_not_called()
-    finally:
-        p.stop_supplement_loop()
-
-
-def test_supplement_concurrent_lock(storage, cfg):
-    """_supplement_lock 防止并发补充。"""
-    import threading as _th
-    provider = MagicMock()
-    # 模拟慢速 fetch，持锁期间第二次调用应跳过
-    fetch_event = _th.Event()
-    def slow_fetch(**kw):
-        fetch_event.set()
-        time.sleep(0.5)
-        return [ProxyRecord(ip="1.1.1.1", port=8080)]
-    provider.fetch.side_effect = slow_fetch
-    p = ProxyPool(storage, cfg, provider)
-    results = []
-    def call_supplement():
-        results.append(p._supplement())
-    t1 = _th.Thread(target=call_supplement)
-    t2 = _th.Thread(target=call_supplement)
-    t1.start()
-    time.sleep(0.1)  # 确保 t1 先拿锁
-    t2.start()
-    t1.join(timeout=5)
-    t2.join(timeout=5)
-    # 一个返回 1（成功补充），一个返回 0（跳过）
-    assert sorted(results) == [0, 1]
 
 
 # ---------------- stats ----------------
@@ -643,3 +489,75 @@ async def test_fetch_async_text_format():
     with patch.object(_httpx, "AsyncClient", return_value=mock_client):
         recs = await p.fetch_async(num=2)
     assert len(recs) == 2
+
+
+# ---------------- acquire_async ----------------
+
+@pytest.mark.asyncio
+async def test_acquire_async_from_pool(pool, storage):
+    """池中有 IP 时直接返回。"""
+    _insert_ip(storage, "1.1.1.1")
+    rec = await pool.acquire_async()
+    assert rec is not None
+    assert rec.ip == "1.1.1.1"
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_pool_empty_buys_one(storage, cfg):
+    """池空时异步买 1 个并返回。"""
+    provider = MagicMock()
+    provider.fetch_async = AsyncMock(return_value=[
+        ProxyRecord(ip="2.2.2.2", port=8080, username="u", password="p"),
+    ])
+    p = ProxyPool(storage, cfg, provider)
+    p._check_ip_alive = AsyncMock(return_value=True)
+    rec = await p.acquire_async()
+    assert rec is not None
+    assert rec.ip == "2.2.2.2"
+    provider.fetch_async.assert_called_once_with(num=1)
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_ip_dead_retries(storage, cfg):
+    """IP 不可用时重试 3 次。"""
+    provider = MagicMock()
+    provider.fetch_async = AsyncMock(return_value=[
+        ProxyRecord(ip="dead", port=8080),
+    ])
+    p = ProxyPool(storage, cfg, provider)
+    p._check_ip_alive = AsyncMock(return_value=False)
+    rec = await p.acquire_async()
+    assert rec is None
+    assert provider.fetch_async.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_check_ip_alive_success(storage, cfg):
+    """连通性检测通过。"""
+    rec = ProxyRecord(ip="1.1.1.1", port=8080)
+    p = ProxyPool(storage, cfg, None)
+    import httpx as _httpx
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    with patch.object(_httpx, "AsyncClient", return_value=mock_client):
+        alive = await p._check_ip_alive(rec, timeout=1)
+    assert alive is True
+
+
+@pytest.mark.asyncio
+async def test_check_ip_alive_fail(storage, cfg):
+    """连通性检测失败。"""
+    rec = ProxyRecord(ip="1.1.1.1", port=8080)
+    p = ProxyPool(storage, cfg, None)
+    import httpx as _httpx
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(side_effect=_httpx.ConnectError("refused"))
+    with patch.object(_httpx, "AsyncClient", return_value=mock_client):
+        alive = await p._check_ip_alive(rec, timeout=1)
+    assert alive is False
