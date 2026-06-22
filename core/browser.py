@@ -58,6 +58,9 @@ class CrawlerBrowser:
         "--no-default-browser-check",
         "--disable-dev-shm-usage",
     ]
+    _HEADFUL_ARGS = [
+        "--start-maximized",
+    ]
 
     def __init__(
         self,
@@ -97,7 +100,7 @@ class CrawlerBrowser:
 
         launch_kwargs: dict[str, Any] = {
             "headless": self.headless,
-            "args": self._STEALTH_ARGS,
+            "args": self._STEALTH_ARGS + (self._HEADFUL_ARGS if not self.headless else []),
         }
         if self.channel:
             launch_kwargs["channel"] = self.channel

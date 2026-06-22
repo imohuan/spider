@@ -115,7 +115,7 @@ state_machine = StateMachine(db, config_mgr)
 # 创建专用 event loop + browser 供 RequestPool 使用
 _event_loop = create_event_loop()
 
-browser = CrawlerBrowser(config_mgr, headless=False)  # 开发模式默认显示窗口
+browser = CrawlerBrowser(config_mgr, headless=False, channel=None)  # 开发模式: Playwright Chromium + 显示窗口
 try:
     _event_loop.run_until_complete(browser.start())
     logger.info("浏览器已启动 (headless=False)")

@@ -813,6 +813,13 @@ class RequestPool:
             except Exception:
                 await asyncio.sleep(1)
 
+        # show_window 时保持窗口几秒，让用户能看到渲染结果
+        if show_window:
+            try:
+                await asyncio.sleep(3)
+            except Exception:
+                pass
+
         await self.browser.close_page(page)
 
         return {"html": html, "duration_ms": browser_duration_ms}
