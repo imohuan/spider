@@ -69,6 +69,7 @@ class BaseParser:
     http_headers: dict = {}          # Parser 声明的额外 headers
     http_default_params: dict = {}   # 默认 query params
     requires_browser: bool = False   # 标记必须用浏览器模式
+    preferred_fetch_mode: str | None = None  # None=跟随全局, "http"/"browser"/"cdp"
 
     def __init__(self, tools: ParserTools | None = None) -> None:
         self.tools = tools or ParserTools()
