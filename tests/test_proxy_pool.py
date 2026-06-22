@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-import asyncio as _asyncio
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -561,3 +561,29 @@ async def test_check_ip_alive_fail(storage, cfg):
     with patch.object(_httpx, "AsyncClient", return_value=mock_client):
         alive = await p._check_ip_alive(rec, timeout=1)
     assert alive is False
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_disabled_returns_none(storage, cfg):
+    cfg.set("proxy_enabled", "false")
+    p = ProxyPool(storage, cfg, None)
+    assert await p.acquire_async() is None
+
+
+@pytest.mark.asyncio
+async def test_acquire_async_concurrent(storage, cfg):
+    """两个并发 acquire 池空时：一个买，另一个等锁后复用。"""
+    provider = MagicMock()
+    provider.fetch_async = AsyncMock(return_value=[
+        ProxyRecord(ip="1.1.1.1", port=8080),
+    ])
+    p = ProxyPool(storage, cfg, provider)
+    p._check_ip_alive = AsyncMock(return_value=True)
+    
+    async def do_acquire():
+        return await p.acquire_async()
+    
+    r1, r2 = await asyncio.gather(do_acquire(), do_acquire())
+    assert r1 is not None and r2 is not None
+    # 并发场景：第一个买并插入 in_use，第二个等锁后经 INSERT OR IGNORE 复用同一条记录
+    assert provider.fetch_async.call_count == 2

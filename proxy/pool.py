@@ -67,6 +67,7 @@ class ProxyPool:
         self._lock = threading.Lock()  # 保护线程启动标记
         self._health_thread: threading.Thread | None = None
         self._health_stop = threading.Event()
+        self._async_lock = asyncio.Lock()  # 保护 JIT 购买临界区
 
     # ---------------- 配置读取 ----------------
 
@@ -94,6 +95,11 @@ class ProxyPool:
     def cooldown_seconds(self) -> int:
         """IP 失败后冷却秒数，复用 captcha_cooldown。"""
         return self.config.get_int("captcha_cooldown", default=1800)
+
+    @property
+    def test_url(self) -> str:
+        """IP 连通性检测目标 URL。"""
+        return self.config.get("proxy_test_url", "http://httpbin.org/ip")
 
     # ---------------- 分配 ----------------
 
@@ -151,7 +157,7 @@ class ProxyPool:
         proxy_url = f"http://{auth}{rec.ip}:{rec.port}"
         try:
             async with httpx.AsyncClient(proxy=proxy_url, timeout=httpx.Timeout(timeout)) as client:
-                resp = await client.get("http://httpbin.org/ip")
+                resp = await client.get(self.test_url)
                 return resp.status_code == 200
         except Exception as e:
             logger.debug(f"IP 检测失败 {rec.ip}:{rec.port}: {e}")
@@ -172,44 +178,57 @@ class ProxyPool:
         if self.provider is None:
             return None
 
-        for attempt in range(3):
-            try:
-                records = await self.provider.fetch_async(num=1)
-            except Exception as e:
-                logger.error(f"购买 IP 失败 (attempt {attempt+1}/3): {e}")
-                if attempt < 2:
-                    await asyncio.sleep(1)
-                continue
-            if not records:
-                if attempt < 2:
-                    await asyncio.sleep(1)
-                continue
-            rec = records[0]
+        async with self._async_lock:
+            # 双重检查：可能在等锁期间别的协程已补上
+            rec = self._acquire_from_pool()
+            if rec is not None:
+                return rec
 
-            alive = await self._check_ip_alive(rec)
-            if alive:
-                expire_at = (datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)).isoformat()
+            for attempt in range(3):
                 try:
-                    with self.storage.get_connection() as conn:
-                        conn.execute(
-                            "INSERT INTO proxy_pool (ip, port, protocol, city, username, password, "
-                            " expire_at, last_used_at, use_count, max_use, status, fail_count) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'in_use', 0)",
-                            (rec.ip, rec.port, rec.protocol or 'http',
-                             rec.city, rec.username, rec.password, expire_at, _now_iso(), self.max_use),
-                        )
-                        rec.id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    records = await self.provider.fetch_async(num=1)
                 except Exception as e:
-                    logger.error(f"入库 IP 失败: {rec.ip}:{rec.port}: {e}")
+                    logger.error(f"购买 IP 失败 (attempt {attempt+1}/3): {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+                    continue
+                if not records:
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+                    continue
+                rec = records[0]
+
+                alive = await self._check_ip_alive(rec)
+                if alive:
+                    expire_at = (datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)).isoformat()
+                    try:
+                        with self.storage.get_connection() as conn:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO proxy_pool (ip, port, protocol, city, username, password, "
+                                " expire_at, last_used_at, use_count, max_use, status, fail_count) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'in_use', 0)",
+                                (rec.ip, rec.port, rec.protocol or 'http',
+                                 rec.city, rec.username, rec.password, expire_at, _now_iso(), self.max_use),
+                            )
+                            # Get the ID (may be existing row's ID on IGNORE)
+                            row = conn.execute("SELECT id FROM proxy_pool WHERE ip = ? AND port = ?",
+                                                (rec.ip, rec.port)).fetchone()
+                            if row:
+                                rec.id = row[0]
+                            else:
+                                logger.error(f"插入后查询 IP 失败: {rec.ip}:{rec.port}")
+                                raise RuntimeError("IP insert failed")
+                    except Exception as e:
+                        logger.error(f"入库 IP 失败: {rec.ip}:{rec.port}: {e}")
+                        if attempt < 2:
+                            await asyncio.sleep(0.5)
+                        continue
+                    logger.info(f"购买并验证 IP: {rec.ip}:{rec.port}")
+                    return rec
+                else:
+                    logger.warning(f"IP 不可用: {rec.ip}:{rec.port} (attempt {attempt+1}/3)")
                     if attempt < 2:
                         await asyncio.sleep(0.5)
-                    continue
-                logger.info(f"购买并验证 IP: {rec.ip}:{rec.port}")
-                return rec
-            else:
-                logger.warning(f"IP 不可用: {rec.ip}:{rec.port} (attempt {attempt+1}/3)")
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
         return None
 
     # ---------------- 回收 ----------------
@@ -361,10 +380,8 @@ class ProxyPool:
             self._health_stop.set()
             t.join(timeout=10)
             if t.is_alive():
-                logger.warning("健康检查线程未能在超时内停止")
-                with self._lock:
-                    if self._health_thread is None:
-                        self._health_thread = t  # 恢复引用，防止重复启动
+                logger.warning("健康检查线程未能在超时内停止，线程已泄漏")
+                # 不恢复引用 — 避免阻塞下次 start
 
     # ---------------- 统计 ----------------
 

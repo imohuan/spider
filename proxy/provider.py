@@ -228,6 +228,30 @@ class KuaidailiProvider(ProxyProvider):
             ))
         return records
 
+    async def _do_fetch_async(self, num: int, ttl: int) -> list[ProxyRecord]:
+        params = {"order_id": "", "num": str(num), "format": "json"}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(self.api_url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        items = (data.get("data") or {}).get("proxy_list", [])
+        records: list[ProxyRecord] = []
+        for item in items:
+            ip = item.get("ip")
+            port = item.get("port")
+            if not ip or not port:
+                continue
+            try:
+                port_int = int(port)
+            except (TypeError, ValueError):
+                continue
+            records.append(ProxyRecord(
+                ip=ip, port=port_int,
+                protocol=item.get("protocol", "http"),
+                city=item.get("city"),
+            ))
+        return records
+
 
 def make_provider(config_api_url: str, provider_name: str = "juliang") -> ProxyProvider | None:
     """根据配置创建 provider 实例。

@@ -34,6 +34,7 @@ _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     ("proxy_ttl", "60", "单个IP的有效期(秒)，到期后自动释放"),
     ("proxy_max_use", "3", "单个IP最多使用次数，达到后标记失效"),
     ("proxy_health_interval", "300", "代理池健康检查间隔(秒)，定期剔除不可用IP"),
+    ("proxy_test_url", "http://httpbin.org/ip", "IP连通性检测目标URL"),
     # --- 缓存 ---
     ("cache_enabled", "true", "启用后重复请求同一URL直接走缓存，减少网络开销"),
     ("cache_html_ttl", "86400", "HTML响应缓存有效期(秒)，默认86400即1天"),
