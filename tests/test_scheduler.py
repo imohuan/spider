@@ -360,6 +360,7 @@ class TestRequestPool:
         p.table_schema = "CREATE TABLE test_cars (id INTEGER PRIMARY KEY, car_id TEXT, title TEXT)"
         p.on_page_created = None  # 禁用页面钩子
         p.on_page_loaded = None
+        p.on_wait_ready = None
 
         def _parse(page, url):
             if p.storage is not None:

@@ -99,6 +99,15 @@ class BaseParser:
         """
         pass
 
+    async def on_wait_ready(self, page) -> None:
+        """页面加载后、解析前的等待钩子，子类可覆盖做自定义等待。
+
+        在 ``goto`` + ``on_page_loaded`` + 验证码检测之后、提取 HTML/parse 之前调用。
+        适用于：等待 redirect guard 完成、等待特定元素渲染、等待列表数据就绪等。
+        未覆盖则直接跳过，无额外开销。
+        """
+        pass
+
     # ---------------- 表管理 ----------------
 
     def ensure_table(self, storage: "Storage") -> None:

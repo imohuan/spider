@@ -8,12 +8,27 @@ import re
 
 from ._base import SimplePageParser
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ShengyiZRDetailParser(SimplePageParser):
     """58 生意转让详情页 —— 提取月租、转让费、面积、楼层、经营状态、配套设施等全字段。
 
     匹配 URL: ``58.com/shangpu/{infoId}x.shtml``
     """
+
+    async def on_wait_ready(self, page) -> None:
+        """等待详情页渲染完成（标题 + 价格元素出现）。"""
+        try:
+            await page.wait_for_selector(
+                "div.house-title h1",
+                state="attached",
+                timeout=30000,
+            )
+        except Exception:
+            logger.warning(f"[{self.__class__.__name__}] on_wait_ready 超时，详情元素未出现")
 
     url_pattern = r"58\.com/shangpu/\d+x\.shtml"
     table_name = "shengyizr_detail"

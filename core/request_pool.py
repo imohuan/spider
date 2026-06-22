@@ -214,6 +214,11 @@ class RequestPool:
                         await self._close_page_with_hook(page, parser)
                     return "blocked"
 
+                # Parser 自定义等待（redirect guard 完成 / 元素渲染）
+                on_wait_ready = getattr(parser, "on_wait_ready", None)
+                if on_wait_ready is not None:
+                    await on_wait_ready(page)
+
                 # 解析
                 raw_path = None
                 try:
@@ -429,6 +434,11 @@ class RequestPool:
                     if not self.keep_browser_open:
                         await self._close_page_with_hook(page, parser)
                     return "blocked"
+
+            # Parser 自定义等待（redirect guard 完成 / 元素渲染）
+            on_wait_ready = getattr(parser, "on_wait_ready", None)
+            if on_wait_ready is not None:
+                await on_wait_ready(page)
 
             # 解析
             raw_path = None
@@ -827,6 +837,11 @@ class RequestPool:
         on_page_loaded = getattr(parser, "on_page_loaded", None)
         if on_page_loaded is not None:
             await on_page_loaded(page, url)
+
+        # Parser 自定义等待（redirect guard 完成 / 元素渲染）
+        on_wait_ready = getattr(parser, "on_wait_ready", None)
+        if on_wait_ready is not None:
+            await on_wait_ready(page)
 
         # 获取 HTML（重试最多 3 次，等页面稳定）
         logger.info(f"[fetch_raw_html] 获取 HTML content ...")

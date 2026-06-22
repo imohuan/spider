@@ -4,9 +4,24 @@
 """
 from ._base import SimplePageParser
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ShengyiZRListParser(SimplePageParser):
     """58 生意转让列表页."""
+
+    async def on_wait_ready(self, page) -> None:
+        """等待列表项渲染完成（redirect guard 结束后列表元素出现）。"""
+        try:
+            await page.wait_for_selector(
+                "div.content-side-left li h2",
+                state="attached",
+                timeout=30000,
+            )
+        except Exception:
+            logger.warning(f"[{self.__class__.__name__}] on_wait_ready 超时，列表元素未出现")
 
     url_pattern = r"58\.com/shengyizr"
     table_name = "shengyizr_list"
