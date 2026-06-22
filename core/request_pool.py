@@ -24,6 +24,8 @@ from typing import Any
 import httpx
 
 from config import RAW_RESPONSE_DIR, PROJECT_ROOT
+
+
 from core.config_manager import ConfigManager
 from core.logger import get_logger
 from core.state_machine import (
@@ -502,13 +504,28 @@ class RequestPool:
         URL 入队和图片下载已由 parser.parse() 自行完成。
         """
         logger.info(
-            f"[Parser:{parser.__class__.__name__}] 提取数据: {len(data)}条"
+            f"[Parser:{parser.__class__.__name__}] 提取数据: {len(data) if data else 0}条"
         )
 
+        # 校验：解析结果为空（[] / None）→ 标记失败
+        if not data:
+            logger.warning(
+                f"[Parser:{parser.__class__.__name__}] 解析结果为空, "
+                f"标记失败 (url={task.get('url')})"
+            )
+            self.storage.mark_request_failed(
+                request_id=request_id,
+                error_msg="解析结果为空（页面无数据或结构变更）",
+            )
+            self.state_machine.mark_failed(queue_id, ERROR_PARSE, "解析结果为空")
+            self._release_proxy(proxy_record, success=False)
+            if page is not None and self.browser is not None and not self.keep_browser_open:
+                await self._close_page_with_hook(page, parser)
+            return "failed"
+
         # 保存业务数据（先确保表存在，幂等）
-        if data:
-            parser.ensure_table(self.storage)
-            self.storage.save_business_data(parser.table_name, data)
+        parser.ensure_table(self.storage)
+        self.storage.save_business_data(parser.table_name, data)
 
         # 更新状态
         self.storage.mark_request_success(
