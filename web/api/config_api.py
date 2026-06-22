@@ -42,171 +42,182 @@ def reset_defaults():
 
 @bp.route("/test-url", methods=["POST"])
 def test_url():
-    """测试 URL — 支持 browser 模式和 http 模式。
+    """测试 URL — 走完整 Parser pipeline，返回 parse() 的结构化结果。
 
     Request body::
 
         {
-            "url": "https://cd.58.com/ershouche/",
-            "mode": "http",             // "browser" | "http"
-            "method": "GET",            // HTTP 模式生效
-            "headers": {},               // 可选, dict
-            "cookies": "k1=v1; k2=v2",  // 可选, 字符串
-            "body_type": "json",         // "none"|"raw"|"form-data"|"json"
-            "body_content": "{}"         // 可选
+            "url": "https://cd.58.com/shangpu/xxx.shtml",
+            "parser": "ShengyiZRDetailParser"   // 可选, 不传则自动匹配
         }
 
     Response::
 
         {
             "ok": true,
-            "status_code": 200,
-            "duration_ms": 1234,
-            "content_type": "text/html",
-            "content_length": 56789,
-            "body_preview": "<html>...",    // 前 50000 字符
-            "headers": {"Server": "..."}
+            "parser": "ShengyiZRDetailParser",
+            "fetch_mode": "browser",
+            "url_matched": true,
+            "duration_ms": 2345,
+            "fetch_duration_ms": 2100,
+            "parse_duration_ms": 45,
+            "data": [{"title": "...", "price_num": "...", ...}],
+            "data_count": 1,
+            "raw_preview": "<html>..."
         }
     """
+    import asyncio
     from flask import current_app
+
+    from core.fake_storage import FakeStorage
 
     data = request.get_json()
     if not data or not data.get("url"):
-        return jsonify({"error": "url is required"}), 400
+        return jsonify({"ok": False, "error": "url is required"}), 400
 
-    url = data["url"]
-    mode = data.get("mode", "http")
-    method = (data.get("method") or "GET").upper()
-    headers = data.get("headers") or {}
-    cookies = data.get("cookies") or ""
-    body_type = data.get("body_type", "none")
-    body_content = data.get("body_content") or ""
+    url = data["url"].strip()
+    parser_name = (data.get("parser") or "").strip()
+
+    components = current_app.config.get("CRAWLER_COMPONENTS", {})
+    registry = components.get("registry")
+    if not registry:
+        return jsonify({"ok": False, "error": "Registry 未初始化"}), 503
+
+    # ── 1. 匹配 Parser ──
+    if parser_name:
+        # 强制指定 Parser — 遍历 classes 找到同名类，然后 match 获取实例
+        parser = None
+        matched_cls = None
+        for cls in registry.classes:
+            if cls.__name__ == parser_name:
+                matched_cls = cls
+                break
+        if not matched_cls:
+            return jsonify({
+                "ok": False,
+                "error": f"Parser '{parser_name}' 不存在",
+            }), 404
+
+        # 获取/创建实例并验证 URL 匹配
+        parser = registry.match(url)
+        if parser is None or parser.__class__.__name__ != parser_name:
+            # URL 不匹配目标 parser — 尝试直接创建目标 parser 实例只做 URL 验证
+            instance = matched_cls(registry.tools)
+            if not instance.matches(url):
+                return jsonify({
+                    "ok": False,
+                    "error": f"URL 不匹配 Parser '{parser_name}' 的 pattern ({matched_cls.url_pattern})",
+                }), 400
+            parser = instance
+    else:
+        # 自动匹配
+        parser = registry.match(url)
+        if not parser:
+            return jsonify({
+                "ok": False,
+                "error": "未找到匹配该 URL 的 Parser",
+            }), 404
+
+    # ── 2. 确定 fetch_mode ──
+    config_mgr = components.get("config")
+    requires_browser = getattr(parser, "requires_browser", False)
+    if requires_browser:
+        fetch_mode = "browser"
+    else:
+        fetch_mode = config_mgr.get("fetch_mode", "browser") if config_mgr else "browser"
 
     logger.info(
-        f"POST /api/config/test-url mode={mode} method={method} url={url[:80]}"
+        f"POST /api/config/test-url parser={parser.__class__.__name__} "
+        f"requires_browser={requires_browser} fetch_mode={fetch_mode} url={url[:80]}"
     )
 
-    if mode == "browser":
-        return _test_browser(url, current_app)
-    else:
-        return _test_http(url, method, headers, cookies, body_type, body_content)
+    # ── 3. 注入 FakeStorage，防止副作用 ──
+    real_storage = components.get("storage")
+    fake_storage = FakeStorage(real_storage) if real_storage else None
+    parser.storage = fake_storage
 
+    # ── 4. Fetch HTML + Parse ──
+    request_pool = components.get("request_pool")
 
-def _test_browser(url: str, app) -> tuple:
-    """用 Playwright browser 抓取 URL。"""
-    components = app.config.get("CRAWLER_COMPONENTS", {})
-    browser = components.get("browser")
+    async def _do() -> dict:
+        t0 = time.perf_counter()
 
-    if not browser:
-        return jsonify({"error": "Browser component not initialized"}), 503
-    if not browser._browser:
-        return jsonify({"error": "Browser not started yet"}), 503
-
-    try:
-        import asyncio
-
-        async def _do():
-            page = await browser._browser.new_page()
+        # Fetch
+        if request_pool is not None:
+            fetch_result = await request_pool.fetch_raw_html(url, parser, fetch_mode)
+            html = fetch_result["html"]
+            fetch_duration_ms = fetch_result.get("duration_ms", 0)
+        elif fetch_mode == "browser":
+            # 降级：直接用 browser 裸抓
+            browser = components.get("browser")
+            if not browser or not getattr(browser, "_browser", None):
+                raise RuntimeError("浏览器未启动")
+            page = await browser.new_page(url=None)
             try:
-                t0 = time.perf_counter()
-                resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                duration_ms = int((time.perf_counter() - t0) * 1000)
-                status = resp.status if resp else 0
-                content_type = resp.headers.get("content-type", "") if resp else ""
-                body = await page.content()
-                resp_headers = dict(resp.headers) if resp else {}
+                t_fetch = time.perf_counter()
+                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                html = await page.content()
+                fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
             finally:
-                await page.close()
+                await browser.close_page(page)
+        else:
+            # HTTP 降级
+            import httpx as _httpx
+            async with _httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+                t_fetch = time.perf_counter()
+                resp = await client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                })
+                html = resp.text
+                fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
 
+        if not html:
+            raise RuntimeError("获取到空 HTML")
+
+        # Parse
+        t_parse = time.perf_counter()
+        try:
+            data_result = parser.parse(html, url)
+        except Exception as e:
+            logger.error(f"Parser {parser.__class__.__name__} parse 失败: {e}", exc_info=True)
             return {
-                "ok": True,
-                "status_code": status,
-                "duration_ms": duration_ms,
-                "content_type": content_type,
-                "content_length": len(body),
-                "body_preview": body[:50000],
-                "headers": {k: v for k, v in list(resp_headers.items())[:20]},
+                "ok": False,
+                "error": f"Parse 失败: {e}",
+                "error_type": type(e).__name__,
+                "parser": parser.__class__.__name__,
+                "raw_preview": html[:5000] if html else "",
             }
 
-        result = asyncio.run(_do())
-        return jsonify(result)
+        parse_duration_ms = int((time.perf_counter() - t_parse) * 1000)
+        total_duration_ms = int((time.perf_counter() - t0) * 1000)
 
-    except Exception as e:
-        logger.error(f"Browser test failed: {e}\n{traceback.format_exc()}")
-        return jsonify({"ok": False, "error": str(e), "error_type": type(e).__name__}), 500
-
-
-def _test_http(
-    url: str,
-    method: str,
-    headers: dict,
-    cookies: str,
-    body_type: str,
-    body_content: str,
-) -> tuple:
-    """用 httpx 异步客户端发出 HTTP 请求。"""
-    import asyncio
-
-    async def _do():
-        import httpx
-
-        # 构建请求配置
-        req_kwargs: dict = {"headers": headers, "follow_redirects": True, "timeout": 30}
-
-        # Cookies
-        if cookies.strip():
-            req_kwargs["cookies"] = _parse_cookies(cookies)
-
-        # Body
-        if body_type != "none" and method in ("POST", "PUT"):
-            if body_type == "json":
-                try:
-                    req_kwargs["json"] = json.loads(body_content)
-                except json.JSONDecodeError:
-                    req_kwargs["content"] = body_content
-            elif body_type == "form-data":
-                parsed = {}
-                for pair in body_content.split("&"):
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        parsed[k.strip()] = v.strip()
-                req_kwargs["data"] = parsed
-            else:
-                req_kwargs["content"] = body_content
-
-        async with httpx.AsyncClient() as client:
-            t0 = time.perf_counter()
-            resp = await client.request(method, url, **req_kwargs)
-            duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        body = resp.text
         return {
             "ok": True,
-            "status_code": resp.status_code,
-            "duration_ms": duration_ms,
-            "content_type": resp.headers.get("content-type", ""),
-            "content_length": len(body),
-            "body_preview": body[:50000],
-            "headers": dict(resp.headers),
+            "parser": parser.__class__.__name__,
+            "fetch_mode": fetch_mode,
+            "url_matched": True,
+            "duration_ms": total_duration_ms,
+            "fetch_duration_ms": fetch_duration_ms,
+            "parse_duration_ms": parse_duration_ms,
+            "data": data_result if isinstance(data_result, list) else [],
+            "data_count": len(data_result) if isinstance(data_result, list) else 0,
+            "raw_preview": html[:5000] if html else "",
         }
 
     try:
         result = asyncio.run(_do())
-        return jsonify(result)
+        if isinstance(result, tuple):
+            return result
+        is_ok = result.get("ok", False)
+        status = 200 if is_ok else (500 if "parse" in str(result.get("error", "")).lower() else 400)
+        return jsonify(result), status
     except Exception as e:
-        logger.error(f"HTTP test failed: {e}\n{traceback.format_exc()}")
-        return jsonify({"ok": False, "error": str(e), "error_type": type(e).__name__}), 500
-
-
-def _parse_cookies(cookie_str: str) -> dict:
-    """解析 cookie 字符串 ``k1=v1; k2=v2`` 为 dict。"""
-    result = {}
-    for part in cookie_str.split(";"):
-        part = part.strip()
-        if "=" in part:
-            k, v = part.split("=", 1)
-            result[k.strip()] = v.strip()
-    return result
+        logger.error(f"test-url 失败: {e}", exc_info=True)
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }), 500
 
 
 @bp.route("/test-ai", methods=["POST"])
