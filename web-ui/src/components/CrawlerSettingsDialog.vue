@@ -75,9 +75,11 @@ async function runTest() {
       pollDebugPages()
     }
   } catch (err: any) {
+    const errData = err?.response?.data
+    const msg = errData?.error || errData?.message || err?.message || 'Unknown error'
     testResult.value = {
       ok: false,
-      error: err?.message || err?.toString?.() || 'Unknown error',
+      error: msg,
       error_type: 'NetworkError',
     }
   } finally {

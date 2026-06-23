@@ -1,4 +1,4 @@
-import { api, http } from './http'
+import { api } from './http'
 
 export const dashboardApi = {
   getMetrics: () => api.get('/dashboard/metrics'),
@@ -50,7 +50,7 @@ export const configApi = {
     parser?: string       // 可选, 从 Parser 卡片进入时携带
     show_window?: boolean // 可选, 显示浏览器窗口（调试用）
     keep_open_seconds?: number // 可选, 保持浏览器打开 N 秒
-  }) => http.post('/config/get-url', payload, { timeout: 60000 }),
+  }) => api.post('/config/get-url', payload, { timeout: 60000 }),
   /** 列出当前保持打开的 debug 浏览器会话 */
   getDebugPages: () => api.get('/config/debug-pages'),
   /** 手动关闭 debug 浏览器页面 */
@@ -59,7 +59,7 @@ export const configApi = {
   testAi: () => api.post('/config/test-ai'),
   /** AI 生成 HTML 预览模板 */
   generateTemplate: (payload: { table: string; prompt: string }) =>
-    http.post('/config/generate-template', payload, { timeout: 120000 }),
+    api.post('/config/generate-template', payload, { timeout: 120000 }),
   /** 模板 CRUD */
   getTemplates: (table: string) => api.get('/config/templates', { table }),
   saveTemplate: (payload: { table_name: string; template_html: string; template_name?: string; id?: number }) =>
