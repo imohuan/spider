@@ -671,13 +671,15 @@ def generate_template():
 
 规则：
 1. 使用 {{字段名}} 作为数据占位符，字段名严格匹配用户提供的列名
-2. 只输出纯净的 HTML 片段（可含内联 style），不要输出 markdown 代码块标记（```html 等）
-3. 不要包含 <!DOCTYPE>、<html>、<head>、<body> 标签
-4. 不生成 <script> 标签
-5. 图片标签加 onerror="this.style.display='none'" 防止破图
-6. 每个卡片最外层 div 不要设置 width（由外层 CSS Grid 控制），不设固定高度
-7. 设计为响应式卡片：图片顶部、内容底部，视觉干净整洁
-8. 直接输出 HTML 源码，不要任何解释性文字、不要前后缀"""
+2. 禁止使用任何模板引擎语法：禁止 {{#if}} / {{#each}} / {{#unless}} / {{else}} / {{/if}} / {{/each}} 等条件或循环语句，禁止使用 {{>partial}} 等引用语法
+3. {{字段名}} 仅用于单个字段值的直接输出，不要嵌套、不要修饰、不要条件判断
+4. 只输出纯净的 HTML 片段（可含内联 style），不要输出 markdown 代码块标记（```html 等）
+5. 不要包含 <!DOCTYPE>、<html>、<head>、<body> 标签
+6. 不生成 <script> 标签
+7. 图片标签加 onerror="this.style.display='none'" 防止破图
+8. 每个卡片最外层 div 不要设置 width（由外层 CSS Grid 控制），不设固定高度
+9. 设计为响应式卡片：图片顶部、内容底部，视觉干净整洁
+10. 直接输出 HTML 源码，不要任何解释性文字、不要前后缀"""
 
     user_parts = [
         f"数据表: {table}",
