@@ -79,14 +79,17 @@ const fetchTemplates = async () => {
   } catch { templates.value = [] }
 }
 
-const onTableChange = () => {
+const onTableChange = async () => {
   page.value = 1
   htmlTemplate.value = ''
   selectedTemplateId.value = null
   selectedOriginal.value = ''
   templates.value = []
   fetchData()
-  fetchTemplates()
+  await fetchTemplates()
+  if (templates.value.length) {
+    selectTemplate(templates.value[0])
+  }
 }
 
 const handlePageChange = (p: number) => { page.value = p; fetchData() }
