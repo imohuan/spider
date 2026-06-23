@@ -17,6 +17,7 @@ const groups = [
       { id: 'preview', name: '预览UI', icon: 'grid_view', path: '/preview' },
       { id: 'data', name: '数据浏览', icon: 'table_chart', path: '/data' },
       { id: 'proxy', name: 'IP 池', icon: 'vpn_lock', path: '/proxy' },
+      { id: 'amap', name: '地图搜索', icon: 'map', path: '/amap' },
     ],
   },
   {

@@ -45,6 +45,8 @@ const LABEL_MAP: Record<string, string> = {
   // AI
   ai_base_url: 'AI 基础地址', ai_api_key: 'AI Key', ai_model: 'AI 模型',
   ai_system_prompt: '系统提示词',
+  // 高德地图
+  amap_key: '高德 API Key', amap_security_code: '安全密钥',
 }
 
 const BOOL_KEYS = new Set(['proxy_enabled', 'cache_enabled', 'image_download', 'captcha_enabled', 'captcha_auto_solve', 'http_follow_redirects'])
@@ -54,7 +56,7 @@ const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
   captcha_fallback: [{ value: 'manual', label: '手动处理' }, { value: 'switch_ip', label: '换 IP' }],
   fetch_mode: [{ value: 'browser', label: 'browser' }, { value: 'http', label: 'http' }],
 }
-const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers', 'ai_base_url', 'ai_api_key', 'ai_model'])
+const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers', 'ai_base_url', 'ai_api_key', 'ai_model', 'amap_key', 'amap_security_code'])
 const TEXTAREA_KEYS = new Set(['ai_system_prompt'])
 
 function inferType(key: string): ConfigType {
@@ -85,7 +87,7 @@ const loadConfigs = async () => {
 
 // ---- 分类 & Tab ----
 const activeTab = ref(0)
-const tabs = ['代理IP', '请求与缓存', '图片下载', '验证码', '系统', 'AI']
+const tabs = ['代理IP', '请求与缓存', '图片下载', '验证码', '系统', 'AI', '地图']
 
 const CATEGORY_MAP: Record<number, string[]> = {
   0: ['proxy_enabled', 'proxy_provider', 'proxy_api_url', 'proxy_fetch_num', 'proxy_ttl', 'proxy_max_use', 'proxy_health_interval'],
@@ -94,6 +96,7 @@ const CATEGORY_MAP: Record<number, string[]> = {
   3: ['captcha_enabled', 'captcha_auto_solve', 'captcha_max_retry', 'captcha_fallback', 'captcha_max_switch', 'captcha_cooldown'],
   4: ['log_level', 'fetch_mode', 'http_user_agent', 'http_default_headers', 'http_follow_redirects'],
   5: ['ai_base_url', 'ai_api_key', 'ai_model', 'ai_system_prompt'],
+  6: ['amap_key', 'amap_security_code'],
 }
 
 const activeTabKeys = computed(() => new Set(CATEGORY_MAP[activeTab.value] || []))

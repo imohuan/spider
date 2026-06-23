@@ -85,6 +85,9 @@ _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     # --- CDP 模式 ---
     ("cdp_endpoint", "http://localhost:9222", "CDP 模式下连接本地 Chrome 的调试端点"),
     ("cdp_enabled", "false", "启用 CDP 模式连接本地 Chrome，需手动启动 Chrome --remote-debugging-port=9222"),
+    # --- 高德地图 ---
+    ("amap_key", "", "高德地图 Web端 API Key，从 console.amap.com 获取"),
+    ("amap_security_code", "", "高德地图安全密钥(securityJsCode)，2021.12.02 后申请的 Key 必填"),
 ]
 
 # 真值字符串集合（小写）—— 与假值集合互斥

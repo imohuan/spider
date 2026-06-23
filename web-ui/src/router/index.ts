@@ -11,6 +11,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/config', name: 'config', component: () => import('@/views/ConfigView.vue'), meta: { title: '配置', desc: 'config 表 · 运行时可调参数' } },
   { path: '/parsers', name: 'parsers', component: () => import('@/views/ParsersView.vue'), meta: { title: 'Parser 管理', desc: '插件注册表 · 启用/禁用/测试' } },
   { path: '/logs', name: 'logs', component: () => import('@/views/LogsView.vue'), meta: { title: '日志', desc: '完整 run.log 显示 · 实时追加' } },
+  { path: '/amap', name: 'amap', component: () => import('@/views/AmapNearbySearchView.vue'), meta: { title: '地图搜索', desc: '高德地图 · 附近 POI 搜索' } },
 ]
 
 export const router = createRouter({ history: createWebHashHistory(), routes })
