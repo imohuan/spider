@@ -166,6 +166,17 @@ CREATE TABLE IF NOT EXISTS templates (
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_templates_table ON templates(table_name);
+
+CREATE TABLE IF NOT EXISTS cookie_presets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    domain        TEXT NOT NULL,
+    cookies_json  TEXT NOT NULL,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cookie_presets_domain ON cookie_presets(domain);
 """
 
 
@@ -645,6 +656,72 @@ class Storage:
                 "SELECT status, COUNT(*) FROM image_queue GROUP BY status"
             ).fetchall()
         return {r[0]: r[1] for r in rows}
+
+    def _init_schema(self) -> None:
+        """(Re-)apply system schema (idempotent). Used by tests."""
+        self.init_db()
+
+    # ── Cookie 预设 ──
+
+    def upsert_cookie_preset(
+        self, name: str, domain: str, cookies_json: str, preset_id: int | None = None
+    ) -> int:
+        """创建或更新 Cookie 预设。preset_id 为 None 时 INSERT，否则 UPDATE。
+
+        :return: 预设 id
+        """
+        with self.get_connection() as conn:
+            if preset_id is not None:
+                conn.execute(
+                    "UPDATE cookie_presets SET name=?, domain=?, cookies_json=?, updated_at=CURRENT_TIMESTAMP "
+                    "WHERE id=?",
+                    (name, domain, cookies_json, preset_id),
+                )
+                return preset_id
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO cookie_presets (name, domain, cookies_json) VALUES (?, ?, ?)",
+                    (name, domain, cookies_json),
+                )
+                return cursor.lastrowid
+
+    def get_cookie_preset(self, preset_id: int) -> tuple | None:
+        """按 id 查询单条预设。"""
+        return self.execute(
+            "SELECT id, name, domain, cookies_json, enabled, created_at, updated_at "
+            "FROM cookie_presets WHERE id=?",
+            (preset_id,), fetch="one",
+        )
+
+    def list_cookie_presets(self) -> list[tuple]:
+        """列出全部预设（含禁用的），按 updated_at 倒序。"""
+        return self.execute(
+            "SELECT id, name, domain, cookies_json, enabled, created_at, updated_at "
+            "FROM cookie_presets ORDER BY updated_at DESC",
+            fetch="all",
+        )
+
+    def delete_cookie_preset(self, preset_id: int) -> bool:
+        """删除预设，返回是否删到了行。"""
+        with self.get_connection() as conn:
+            cur = conn.execute("DELETE FROM cookie_presets WHERE id=?", (preset_id,))
+            return cur.rowcount > 0
+
+    def match_cookie_preset(self, url: str) -> tuple | None:
+        """按 URL 域名匹配启用的 Cookie 预设。
+
+        从 url 提取域名 → 查 cookie_presets WHERE domain=? AND enabled=1。
+        返回完整行 tuple(id, name, domain, cookies_json, enabled, created_at, updated_at) 或 None。
+        """
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+        if not domain:
+            return None
+        return self.execute(
+            "SELECT id, name, domain, cookies_json, enabled, created_at, updated_at "
+            "FROM cookie_presets WHERE domain=? AND enabled=1 LIMIT 1",
+            (domain,), fetch="one",
+        )
 
     # ---------------- 生命周期 ----------------
 

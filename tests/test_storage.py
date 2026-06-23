@@ -62,7 +62,7 @@ def _list_indexes(storage: Storage) -> list[str]:
 def test_creates_all_system_tables(storage):
     """8 张系统表必须全部建出。"""
     tables = set(_list_tables(storage))
-    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue", "templates"}
+    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue", "templates", "cookie_presets"}
     missing = expected - tables
     assert not missing, f"缺少系统表: {missing}"
     # 不应有额外的表
@@ -959,3 +959,43 @@ def test_ensure_business_table_rejects_multi_statement(storage):
     # t_inject / t_drop 不应被创建
     assert "t_inject" not in tables
     assert "t_drop" not in tables
+
+
+# ── cookie_presets 表测试 ──
+
+def test_cookie_presets_schema_exists(storage):
+    """cookie_presets 表存在且核心列齐全。"""
+    storage._init_schema()
+    cols = storage.execute("PRAGMA table_info(cookie_presets)", fetch="all")
+    col_names = {r[1] for r in cols}
+    assert col_names >= {"id", "name", "domain", "cookies_json", "enabled", "created_at", "updated_at"}
+
+
+def test_upsert_cookie_preset(storage):
+    storage._init_schema()
+    cookies = [{"domain": "58.com", "name": "token", "value": "abc123"}]
+    preset_id = storage.upsert_cookie_preset(
+        name="58同城-登录",
+        domain="jianyangshi.58.com",
+        cookies_json=json.dumps(cookies, ensure_ascii=False),
+    )
+    assert preset_id >= 1
+
+    row = storage.execute("SELECT * FROM cookie_presets WHERE id = ?", (preset_id,), fetch="one")
+    assert row[1] == "58同城-登录"
+    assert row[2] == "jianyangshi.58.com"
+
+
+def test_match_cookie_preset(storage):
+    storage._init_schema()
+    storage.upsert_cookie_preset("58-已登录", "jianyangshi.58.com", '[{"name":"t","value":"v"}]')
+    storage.upsert_cookie_preset("淘宝-已登录", "taobao.com", '[{"name":"s","value":"x"}]')
+
+    # 精确域名匹配
+    result = storage.match_cookie_preset("https://jianyangshi.58.com/shengyizr/pn2/")
+    assert result is not None
+    assert result[1] == "58-已登录"  # name 列
+
+    # 不匹配
+    result = storage.match_cookie_preset("https://www.baidu.com/")
+    assert result is None
