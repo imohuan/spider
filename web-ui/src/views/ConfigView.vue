@@ -107,8 +107,55 @@ const filteredConfigs = computed(() =>
 
 // ---- 操作 ----
 const dirty = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 const markDirty = () => { dirty.value = true }
+
+const doExport = () => {
+  const data: Record<string, string> = {}
+  configs.value.forEach(c => {
+    data[c.key] = typeof c.value === 'boolean' ? (c.value ? 'true' : 'false') : String(c.value)
+  })
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `crawler-config-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  triggerNotify('配置已导出', 'success')
+}
+
+const triggerImport = () => {
+  fileInput.value?.click()
+}
+
+const onImportFile = (e: Event) => {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result))
+      // Merge imported values into configs
+      configs.value.forEach(c => {
+        if (data[c.key] !== undefined) {
+          const val = data[c.key]
+          c.value = c.type === 'bool' ? (val === 'true' || val === true) : val
+        }
+      })
+      dirty.value = true
+      triggerNotify('配置已导入，请手动保存', 'success')
+    } catch {
+      triggerNotify('导入失败：无效的 JSON 文件', 'error')
+    }
+  }
+  reader.readAsText(file)
+  // Reset input
+  if (fileInput.value) fileInput.value.value = ''
+}
 
 const doSave = async () => {
   const data: Record<string, string> = {}
@@ -213,7 +260,12 @@ onMounted(loadConfigs)
 
       <!-- Footer -->
       <div class="px-4 py-ax-sm border-t border-outline-variant flex justify-between items-center">
-        <span class="text-[11px] text-secondary">{{ dirty ? '有未保存的修改' : '配置改动立即生效' }}</span>
+        <div class="flex gap-ax-sm items-center">
+          <span class="ml-ax-sm text-[11px] text-secondary">{{ dirty ? '有未保存的修改' : '配置改动立即生效' }}</span>
+          <AxButton class="underline" variant="outline" size="sm" @click="triggerImport">导入</AxButton>
+          <AxButton class="underline" variant="outline" size="sm" @click="doExport">导出</AxButton>
+          <input ref="fileInput" type="file" accept=".json" class="hidden" @change="onImportFile" />
+        </div>
         <div class="flex gap-ax-sm items-center">
           <AxButton v-if="activeTab === 5" variant="outline" size="lg" :loading="testingAi" @click="testAi">AI 连接测试</AxButton>
           <AxButton variant="outline" size="lg" @click="doReset">重置默认</AxButton>
