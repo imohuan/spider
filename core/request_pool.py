@@ -20,6 +20,7 @@ import random
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -113,10 +114,18 @@ class RequestPool:
 
     async def _browser_page_lifecycle(
         self, browser: Any, url: str, parser: Any, proxy_url: str | None,
+        cookies: list[dict] | None = None,
     ) -> tuple[Any, int]:
-        """创建页面 → goto → 生命周期钩子 → 返回 (page, duration_ms)。"""
+        """创建页面 → Cookie 注入 → goto → 生命周期钩子 → 返回 (page, duration_ms)。"""
         start = time.monotonic()
         page = await browser.new_page(url=None, proxy=proxy_url)
+
+        # Cookie 注入（在 goto 之前）
+        if cookies:
+            try:
+                await page.context.add_cookies(cookies)
+            except Exception as e:
+                logger.warning(f"Cookie 注入失败: {e}")
 
         on_page_created = getattr(parser, "on_page_created", None)
         if on_page_created is not None:
@@ -248,8 +257,9 @@ class RequestPool:
                     self._fail_task(request_id, queue_id, ERROR_NETWORK, "cdp_browser 未注入", proxy_record)
                     return "failed"
 
+                playwright_cookies = self._extract_cookies_from_task(task)
                 page, cdp_duration_ms = await self._browser_page_lifecycle(
-                    self.cdp_browser, url, parser, proxy_url,
+                    self.cdp_browser, url, parser, proxy_url, cookies=playwright_cookies,
                 )
 
                 # 验证码检测
@@ -389,8 +399,9 @@ class RequestPool:
                 self._fail_task(request_id, queue_id, ERROR_NETWORK, "browser 未注入", proxy_record)
                 return "failed"
 
+            playwright_cookies = self._extract_cookies_from_task(task)
             page, browser_duration_ms = await self._browser_page_lifecycle(
-                self.browser, url, parser, proxy_url,
+                self.browser, url, parser, proxy_url, cookies=playwright_cookies,
             )
 
             # 验证码检测
@@ -775,6 +786,38 @@ class RequestPool:
         if getattr(proxy_record, "username", None) and getattr(proxy_record, "password", None):
             auth = f"{proxy_record.username}:{proxy_record.password}@"
         return f"http://{auth}{proxy_record.ip}:{proxy_record.port}"
+
+    def _extract_cookies_from_task(self, task: dict) -> list[dict]:
+        """从 task.request_config 提取 cookies 并转为 Playwright 格式。
+
+        queue 表 request_config.cookies 可能是：
+        - httpx 格式 {name: value, ...}     → 转为 [{name, value, domain, path: "/"}]
+        - EditThisCookie 格式 [{...}, ...]  → 原样返回
+
+        :return: Playwright add_cookies 兼容的 cookie 列表
+        """
+        rc_str = task.get("request_config")
+        if not rc_str:
+            return []
+        try:
+            rc = json.loads(rc_str) if isinstance(rc_str, str) else rc_str
+        except (json.JSONDecodeError, TypeError):
+            return []
+        cookies = rc.get("cookies", {})
+        if not cookies:
+            return []
+
+        # httpx 格式 {name: value} → Playwright 格式
+        domain = urlparse(task["url"]).netloc
+        if isinstance(cookies, dict):
+            return [
+                {"name": k, "value": v, "domain": domain, "path": "/"}
+                for k, v in cookies.items()
+            ]
+        # EditThisCookie 格式 [{name, value, domain, path, ...}]
+        if isinstance(cookies, list):
+            return cookies
+        return []
 
     # ---------------- 原始 HTML 获取（无 DB 写入）----------------
 
