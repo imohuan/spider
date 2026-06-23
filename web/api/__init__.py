@@ -12,6 +12,7 @@ def register_blueprints(app: Flask) -> None:
     from web.api.parsers import bp as parsers_bp
     from web.api.logs import bp as logs_bp
     from web.api.crawler_control import bp as crawler_bp
+    from web.api.images import bp as images_bp
 
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(queue_bp, url_prefix='/api/queue')
@@ -22,3 +23,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(parsers_bp, url_prefix='/api/parsers')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(crawler_bp, url_prefix='/api/crawler')
+    app.register_blueprint(images_bp, url_prefix='/api/images')

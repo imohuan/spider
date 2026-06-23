@@ -32,13 +32,20 @@ const gridStyle = computed(() => ({
   alignContent: 'start',
 }))
 
+const proxyImageUrls = (html: string) =>
+  html.replace(
+    /(<img[^>]*\ssrc\s*=\s*")(https?:\/\/[^"]+)(")/gi,
+    (_, prefix: string, url: string, suffix: string) =>
+      `${prefix}/api/images/proxy?url=${encodeURIComponent(url)}${suffix}`,
+  )
+
 const renderedItems = computed(() =>
   rows.value.map(row => {
     const html = htmlTemplate.value.replace(/\{\{(\w+)\}\}/g, (_, key) => {
       const val = row[key]
       return val != null ? String(val) : ''
     })
-    return { html, row }
+    return { html: proxyImageUrls(html), row }
   }),
 )
 
@@ -164,10 +171,11 @@ const deleteTemplate = async (id: number) => {
 const renderPreview = (html: string) => {
   const firstRow = rows.value[0]
   if (!firstRow) return html
-  return html.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+  const rendered = html.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     const val = firstRow[key]
     return val != null ? String(val) : ''
   })
+  return proxyImageUrls(rendered)
 }
 
 onMounted(async () => {
@@ -178,6 +186,9 @@ onMounted(async () => {
     if (selectedTable.value) {
       await fetchData()
       await fetchTemplates()
+      if (templates.value.length) {
+        selectTemplate(templates.value[0])
+      }
     }
   }
 })
@@ -231,10 +242,11 @@ onMounted(async () => {
             </div>
             <div class="flex gap-ax-xs overflow-x-auto pb-ax-xs">
               <div v-for="t in templates" :key="t.id"
-                class="relative flex-shrink-0 p-ax-xs rounded-lg border cursor-pointer transition-colors w-[160px] h-[180px] overflow-hidden pointer-events-none select-none" :class="selectedTemplateId === t.id
+                class="relative flex-shrink-0 p-ax-xs rounded-lg border cursor-pointer transition-colors w-[160px] h-[180px] overflow-hidden select-none"
+                :class="selectedTemplateId === t.id
                   ? 'border-primary bg-primary/5'
                   : 'border-outline-variant hover:border-outline-secondary'" @click="selectTemplate(t)">
-                <div class="overflow-hidden pr-4"
+                <div class="overflow-hidden pr-4 pointer-events-none"
                   style="transform: scale(0.5); transform-origin: left top; width: 200%;"
                   v-html="renderPreview(t.template_html)" />
                 <div class="absolute top-1 right-1 !text-3 text-text-hint hover:!text-danger">
