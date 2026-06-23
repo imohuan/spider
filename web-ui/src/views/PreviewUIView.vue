@@ -263,7 +263,7 @@ onMounted(async () => {
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <div class="flex-1 overflow-auto bg-surface-container-lowest border border-outline-variant rounded-xl p-ax-md">
         <div v-if="htmlTemplate && renderedItems.length" :style="gridStyle as any">
-          <div v-for="(item, i) in renderedItems" :key="i" v-html="item.html" />
+          <div class="card-item" v-for="(item, i) in renderedItems" :key="i" v-html="item.html" />
         </div>
         <div v-else class="h-full flex items-center justify-center text-secondary text-sm">
           <div class="text-center space-y-ax-sm">
@@ -309,4 +309,9 @@ onMounted(async () => {
   opacity: 0;
   overflow: hidden;
 }
+
+.card-item > :deep(div) {
+  height: 100%;
+}
 </style>
+
