@@ -1,16 +1,44 @@
 from __future__ import annotations
+import hashlib
 import json
+import os
 import time
 import traceback
+from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import Blueprint, jsonify, request
 
 from core.config_manager import ConfigManager
 from core.logger import get_logger
 from core.storage import Storage, _validate_identifier
+from config import RAW_RESPONSE_DIR, PROJECT_ROOT
 
 logger = get_logger("web.api.config")
 bp = Blueprint("config", __name__)
+
+
+def _save_test_raw_response_static(url: str, content: str) -> str:
+    """test-url fallback 路径的原始响应保存（不依赖 RequestPool）。"""
+    os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    try:
+        host = urlparse(url).hostname or "unknown"
+    except Exception:
+        host = "unknown"
+    url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()[:6]
+    filename = f"{host}_{url_hash}_{ts}.html"
+    filepath = os.path.join(RAW_RESPONSE_DIR, filename)
+    max_size = 5 * 1024 * 1024
+    if len(content) > max_size:
+        half = max_size // 2
+        content = content[:half] + "\n\n<!-- ... 响应过大，已截断 ... -->\n\n" + content[-half:]
+        logger.warning(f"test-url 原始响应过大，已截断至 5MB: {filepath}")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    rel = os.path.relpath(filepath, PROJECT_ROOT)
+    logger.info(f"[test-url] 原始响应已保存: {rel}")
+    return rel
 
 
 @bp.route("")
@@ -144,6 +172,7 @@ def test_url():
 
     async def _do() -> dict:
         t0 = time.perf_counter()
+        raw_path = ""
         logger.info(f"[test-url] 开始抓取 url={url[:60]} fetch_mode={fetch_mode}")
 
         # Fetch
@@ -153,6 +182,7 @@ def test_url():
             logger.info(f"[test-url] ← fetch_raw_html 完成 duration={fetch_result.get('duration_ms')}ms html_len={len(fetch_result.get('html',''))}")
             html = fetch_result["html"]
             fetch_duration_ms = fetch_result.get("duration_ms", 0)
+            raw_path = fetch_result.get("raw_path", "")
         elif fetch_mode == "browser":
             # 降级：直接用 browser 裸抓
             browser = components.get("browser")
@@ -164,6 +194,9 @@ def test_url():
                 await page.goto(url, timeout=30000, wait_until="domcontentloaded")
                 html = await page.content()
                 fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
+                # 保存原始响应
+                if html:
+                    raw_path = _save_test_raw_response_static(url, html)
             finally:
                 await browser.close_page(page)
         else:
@@ -176,6 +209,9 @@ def test_url():
                 })
                 html = resp.text
                 fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
+                # 保存原始响应
+                if html:
+                    raw_path = _save_test_raw_response_static(url, html)
 
         if not html:
             raise RuntimeError("获取到空 HTML")
@@ -193,6 +229,7 @@ def test_url():
                 "error_type": type(e).__name__,
                 "parser": parser.__class__.__name__,
                 "raw_preview": html[:5000] if html else "",
+                "raw_path": raw_path,
             }
 
         parse_duration_ms = int((time.perf_counter() - t_parse) * 1000)
@@ -209,6 +246,7 @@ def test_url():
             "data": data_result if isinstance(data_result, list) else [],
             "data_count": len(data_result) if isinstance(data_result, list) else 0,
             "raw_preview": html[:5000] if html else "",
+            "raw_path": raw_path,      # 原始响应保存路径，如 data/raw_responses/xxx.html
         }
 
     try:

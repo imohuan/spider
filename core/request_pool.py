@@ -734,6 +734,38 @@ class RequestPool:
     # ---------------- 原始响应保存 ----------------
 
     @staticmethod
+    def _save_test_raw_response(url: str, content: str, suffix: str = "html") -> str:
+        """test-url 专用：保存原始响应，返回相对于 PROJECT_ROOT 的路径。
+
+        文件名用 URL host + md5 hash + 时间戳，不依赖 queue_id/request_id。
+
+        :param url: 抓取的 URL
+        :param content: 响应文本内容
+        :param suffix: 文件扩展名（默认 html）
+        :return: 相对路径，如 ``data/raw_responses/www.tianyancha.com_a1b2c3_20260623_124100.html``
+        """
+        import hashlib
+        os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        try:
+            host = urlparse(url).hostname or "unknown"
+        except Exception:
+            host = "unknown"
+        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()[:6]
+        filename = f"{host}_{url_hash}_{ts}.{suffix}"
+        filepath = os.path.join(RAW_RESPONSE_DIR, filename)
+        max_size = 5 * 1024 * 1024
+        if len(content) > max_size:
+            half = max_size // 2
+            content = content[:half] + "\n\n<!-- ... 响应过大，已截断 ... -->\n\n" + content[-half:]
+            logger.warning(f"test-url 原始响应过大，已截断至 5MB: {filepath}")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        rel = os.path.relpath(filepath, PROJECT_ROOT)
+        logger.info(f"[test-url] 原始响应已保存: {rel}")
+        return rel
+
+    @staticmethod
     def _save_raw_response(queue_id: int, request_id: int, content: str) -> str:
         """保存原始响应文本到 raw_responses，返回相对于 PROJECT_ROOT 的路径。
 
@@ -907,7 +939,10 @@ class RequestPool:
         await self.browser.close_page(page)
         logger.info(f"[fetch_raw_html] 完成 return")
 
-        return {"html": html, "duration_ms": browser_duration_ms}
+        # 保存原始响应
+        raw_path = self._save_test_raw_response(url, html) if html else ""
+
+        return {"html": html, "duration_ms": browser_duration_ms, "raw_path": raw_path}
 
     async def _fetch_raw_html_http(self, url: str, parser: Any) -> dict:
         """HTTP mode for fetch_raw_html — no DB writes, no proxy, no parse."""
@@ -942,11 +977,14 @@ class RequestPool:
             start = time.monotonic()
             response = await client.request("GET", url, headers=merged_headers)
             duration_ms = int((time.monotonic() - start) * 1000)
+            html = response.text
+            raw_path = self._save_test_raw_response(url, html) if html else ""
             return {
-                "html": response.text,
+                "html": html,
                 "duration_ms": duration_ms,
                 "status_code": response.status_code,
                 "content_type": response.headers.get("content-type", ""),
+                "raw_path": raw_path,
             }
 
     # ---------------- 统计 ----------------
