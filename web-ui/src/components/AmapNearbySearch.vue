@@ -5,6 +5,7 @@ import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 const props = defineProps<{
   amapKey: string
   amapSecurityCode?: string
+  amapWebapiKey?: string
 }>()
 
 // ── v-model ──
@@ -125,6 +126,51 @@ function getCenter(): [number, number] {
 }
 
 // ── 搜索 ──
+function doApiSearch() {
+  const kw = keyword.value.trim()
+  if (!kw) { showToast('请输入搜索关键词'); return }
+  if (!props.amapWebapiKey) { showToast('请先配置高德 Web服务 Key'); return }
+
+  const center = getCenter()
+  if (map) map.setCenter(center)
+  searching.value = true
+  currentPois.value = []
+
+  const loc = `${center[0]},${center[1]}`
+  const sortrule = sortBy.value === 'rating' ? 'weight' : 'distance'
+
+  fetch(
+    `https://restapi.amap.com/v3/place/around?key=${props.amapWebapiKey}&location=${loc}&radius=${radius.value}&keywords=${encodeURIComponent(kw)}&sortrule=${sortrule}&offset=25&page=1&extensions=all`
+  )
+    .then(r => r.json())
+    .then(data => {
+      searching.value = false
+      if (data.status === '1' && data.pois) {
+        const pois = data.pois.map((p: any) => ({
+          ...p,
+          location: { lng: parseFloat(p.location.split(',')[0]), lat: parseFloat(p.location.split(',')[1]) },
+          distance: parseInt(p.distance) || 0,
+          biz_ext: p.biz_ext || {},
+          photos: p.photos || [],
+        }))
+        if (sortBy.value === 'rating') {
+          pois.sort((a: any, b: any) => ((b.biz_ext && b.biz_ext.rating) || 0) - ((a.biz_ext && a.biz_ext.rating) || 0))
+        }
+        currentPois.value = pois
+        activeIdx.value = -1
+        addMarkers(pois)
+        showToast(`找到 ${pois.length} 个结果`)
+      } else {
+        showToast(data.info || '未找到结果')
+        clearAll()
+      }
+    })
+    .catch(e => {
+      searching.value = false
+      showToast('请求失败: ' + e.message)
+    })
+}
+
 function doSearch() {
   const kw = keyword.value.trim()
   if (!kw) { showToast('请输入搜索关键词'); return }
@@ -366,6 +412,7 @@ defineExpose({ search: doSearch, openDetail })
         </div>
         <div class="flex gap-ax-sm">
           <AxButton variant="primary" size="lg" @click="doSearch" :loading="searching" style="flex:1">搜索</AxButton>
+          <AxButton variant="outline" size="lg" @click="doApiSearch" :disabled="!props.amapWebapiKey" style="flex:1">API</AxButton>
           <AxButton variant="outline" size="lg" @click="doLocate" style="flex:1"><span class="material-symbols-outlined text-sm">my_location</span> 定位</AxButton>
         </div>
       </div>

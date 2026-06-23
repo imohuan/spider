@@ -12,6 +12,7 @@ const { triggerNotify } = useNotify()
 // ── 高德配置（从后端加载） ──
 const amapKey = ref('')
 const amapSecurityCode = ref('')
+const amapWebapiKey = ref('')
 const ready = ref(false)
 const notConfigured = ref(false)
 
@@ -54,6 +55,7 @@ onMounted(async () => {
 
     amapKey.value = cfg['amap_key'] || ''
     amapSecurityCode.value = cfg['amap_security_code'] || ''
+    amapWebapiKey.value = cfg['amap_webapi_key'] || ''
 
     if (!amapKey.value) {
       notConfigured.value = true
@@ -83,6 +85,7 @@ onMounted(async () => {
     ref="amapRef"
     :amap-key="amapKey"
     :amap-security-code="amapSecurityCode"
+    :amap-webapi-key="amapWebapiKey"
     v-model:lng="lng"
     v-model:lat="lat"
     v-model:radius="radius"
