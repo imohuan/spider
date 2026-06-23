@@ -138,6 +138,19 @@ scheduler = Scheduler(
     request_pool=request_pool,
 )
 
+# 工作流系统
+from core.workflow_registry import WorkflowRegistry
+from core.workflow_scheduler import WorkflowScheduler
+
+workflow_registry = WorkflowRegistry()
+workflow_registry.discover()
+
+workflow_scheduler = WorkflowScheduler(
+    storage=db,
+    registry=workflow_registry,
+)
+workflow_scheduler.start()
+
 app.config["CRAWLER_COMPONENTS"] = {
     "storage": db,
     "config": config_mgr,
@@ -145,7 +158,9 @@ app.config["CRAWLER_COMPONENTS"] = {
     "scheduler": scheduler,
     "browser": browser,
     "request_pool": request_pool,
-    "event_loop": _event_loop,  # 持久事件循环，避免 asyncio.Lock 跨循环死锁
+    "event_loop": _event_loop,
+    "workflow_registry": workflow_registry,
+    "workflow_scheduler": workflow_scheduler,
 }
 
 # 注入 Scheduler 引用给爬虫控制 API
@@ -197,6 +212,7 @@ def _shutdown(sig=None, frame=None) -> None:
     _shutting_down = True
     logger.info("正在关闭...")
     scheduler.stop()
+    workflow_scheduler.stop()
     # 停止图片队列 Worker
     stop_image_worker(_img_worker, _img_loop, _img_thread, logger)
     try:
