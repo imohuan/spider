@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 from typing import Any
 
@@ -65,8 +66,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None, help="日志级别（覆盖 config.log_level）",
     )
     parser.add_argument(
-        "--headless", action="store_true", default=True,
-        help="浏览器无头模式（默认开启）",
+        "--headless", action="store_true", default=None,
+        help="浏览器无头模式",
     )
     parser.add_argument(
         "--show-browser", action="store_true",
@@ -137,7 +138,7 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
 
     # 浏览器
     from core.browser import CrawlerBrowser
-    browser = CrawlerBrowser(config_mgr, headless=not args.show_browser)
+    browser = CrawlerBrowser(config_mgr, headless=args.headless if args.headless is not None else not args.show_browser)
 
     # CDP 浏览器（仅在 fetch_mode=cdp 或 cdp_enabled=true 时初始化）
     cdp_browser = None
@@ -152,8 +153,14 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
     # Parser 注册表
     from parser.registry import ParserRegistry
     registry = ParserRegistry(storage=storage, tools=tools)
-    registry.discover()
-    registry.ensure_all_tables()
+    try:
+        registry.discover()
+    except Exception:
+        pass  # parser/plugins 可能不存在, 不影响启动
+    try:
+        registry.ensure_all_tables()
+    except Exception:
+        pass  # 业务表创建失败不阻塞启动
 
     # ── 工作流系统 ──
     from core.workflow_registry import WorkflowRegistry
@@ -269,17 +276,36 @@ def main(argv: list[str] | None = None) -> int:
     else:
         server_thread = None
 
+    # ── 信号处理（Ctrl+C / kill 优雅退出）──
+    _shutting_down = False
+
+    def _shutdown(sig=None, frame=None):
+        nonlocal _shutting_down
+        if _shutting_down:
+            return
+        _shutting_down = True
+        logger.info("收到退出信号，正在优雅关闭...")
+        scheduler.request_shutdown()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
     # 启动健康检查线程（代理启用时）
     if config_mgr.get_bool("proxy_enabled", default=False):
         proxy_pool.start_health_check_loop()
 
-    # 启动浏览器（用持久化事件循环，避免 asyncio.run 创建新循环导致 Playwright 对象失效）
     try:
-        event_loop.run_until_complete(browser.start())
+        # 启动浏览器（用持久化事件循环，避免 asyncio.run 创建新循环导致 Playwright 对象失效）
+        try:
+            event_loop.run_until_complete(browser.start())
+            logger.info("浏览器已启动")
+        except Exception as e:
+            logger.error(f"浏览器启动失败（API 仍可用，但 browser 模式不可用）: {e}")
+            browser = None
 
         # CDP 模式下连接本地 Chrome
         cdp_browser = components.get("cdp_browser")
-        if cdp_browser is not None:
+        if browser is not None and cdp_browser is not None:
             try:
                 event_loop.run_until_complete(cdp_browser.connect())
                 logger.info(f"CDP 已连接本地 Chrome: {cdp_browser.endpoint}")
@@ -307,16 +333,18 @@ def main(argv: list[str] | None = None) -> int:
             # 停止图片 Worker
             stop_image_worker(img_worker, img_loop, img_thread, logger)
             proxy_pool.stop_health_check_loop()
+            workflow_scheduler.stop()
             # 关闭浏览器 — 连接可能已断开（Ctrl+C 时常见），吞掉错误不炸
-            try:
-                event_loop.run_until_complete(browser.close())
-            except Exception as e:
-                logger.warning(f"浏览器关闭异常（可忽略）: {e}")
-            # CDP 断开
-            cdp_browser = components.get("cdp_browser")
-            if cdp_browser is not None:
+            if browser is not None:
                 try:
-                    event_loop.run_until_complete(cdp_browser.disconnect())
+                    event_loop.run_until_complete(browser.close())
+                except Exception as e:
+                    logger.warning(f"浏览器关闭异常（可忽略）: {e}")
+            # CDP 断开
+            cdp = components.get("cdp_browser")
+            if cdp is not None:
+                try:
+                    event_loop.run_until_complete(cdp.disconnect())
                 except Exception as e:
                     logger.warning(f"CDP 断开异常: {e}")
             # 取消所有待处理异步任务，避免 "Task was destroyed but it is pending!"
