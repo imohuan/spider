@@ -1,10 +1,10 @@
 from __future__ import annotations
 import json
-import time
 import traceback
 
 from flask import Blueprint, jsonify, request
 
+from core.ai import AIClient
 from core.config_manager import ConfigManager
 from core.logger import get_logger
 from core.storage import Storage, _validate_identifier
@@ -164,62 +164,41 @@ def test_ai():
     import asyncio
     import httpx
 
-    config_mgr = ConfigManager(Storage())
-    base_url = (config_mgr.get("ai_base_url") or "").strip().rstrip("/")
-    api_key = (config_mgr.get("ai_api_key") or "").strip()
-    model = (config_mgr.get("ai_model") or "").strip()
-
-    if not base_url:
-        return jsonify({"ok": False, "error": "AI Base URL 未配置"}), 400
-    if not api_key:
-        return jsonify({"ok": False, "error": "AI API Key 未配置"}), 400
-    if not model:
-        return jsonify({"ok": False, "error": "AI 模型未配置"}), 400
+    ai = AIClient.from_config()
+    missing = ai.check_configured()
+    if missing:
+        return jsonify({"ok": False, "error": missing[0]}), 400
 
     async def _do():
-        async with httpx.AsyncClient(timeout=30) as client:
-            t0 = time.perf_counter()
-            resp = await client.post(
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "user", "content": "reply only the word 'pong'"}
-                    ],
-                    "max_tokens": 5,
-                },
+        try:
+            resp, duration_ms = await ai.chat_completion(
+                messages=[{"role": "user", "content": "reply only the word 'pong'"}],
+                max_tokens=5,
+                timeout=30,
             )
-            duration_ms = int((time.perf_counter() - t0) * 1000)
-            data = resp.json()
+            resp_data = resp.json()
 
-            if resp.status_code != 200:
-                error_msg = data.get("error", {}).get("message", resp.text)
-                return {"ok": False, "error": f"{resp.status_code}: {error_msg}", "duration_ms": duration_ms}
+            if not AIClient.response_ok(resp):
+                return {"ok": False, "error": f"{resp.status_code}: {AIClient.error_message(resp, resp_data)}", "duration_ms": duration_ms}
 
-            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            usage = data.get("usage", {})
+            reply = AIClient.extract_content(resp_data).strip()
+            usage = AIClient.extract_usage(resp_data)
             return {
                 "ok": True,
-                "model": data.get("model", model),
+                "model": AIClient.extract_model(resp_data) or ai.model,
                 "reply": reply,
                 "duration_ms": duration_ms,
-                "tokens": {
-                    "prompt": usage.get("prompt_tokens", 0),
-                    "completion": usage.get("completion_tokens", 0),
-                },
+                "tokens": {"prompt": usage["prompt_tokens"], "completion": usage["completion_tokens"]},
             }
+        except httpx.ConnectError:
+            return {"ok": False, "error": f"无法连接到 {ai.base_url}"}
+        except httpx.TimeoutException:
+            return {"ok": False, "error": "请求超时（30s）"}
 
     try:
         result = asyncio.run(_do())
-        return jsonify(result)
-    except httpx.ConnectError:
-        return jsonify({"ok": False, "error": f"无法连接到 {base_url}"}), 502
-    except httpx.TimeoutException:
-        return jsonify({"ok": False, "error": "请求超时（30s）"}), 504
+        status_code = 502 if "无法连接" in str(result.get("error", "")) else 504 if "超时" in str(result.get("error", "")) else 200 if result.get("ok") else 500
+        return jsonify(result), status_code
     except Exception as e:
         logger.error(f"AI test failed: {e}\n{traceback.format_exc()}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -295,18 +274,11 @@ def ai_vision():
         return jsonify({"ok": False, "error": "output_mode.parameters is required"}), 400
 
     # 读取配置
-    config_mgr = ConfigManager(Storage())
-    base_url = (config_mgr.get("ai_base_url") or "").strip().rstrip("/")
-    api_key = (config_mgr.get("ai_api_key") or "").strip()
-    model = (config_mgr.get("ai_model") or "").strip()
-    db_system_prompt = config_mgr.get("ai_system_prompt") or ""
-
-    if not base_url:
-        return jsonify({"ok": False, "error": "AI Base URL 未配置"}), 400
-    if not api_key:
-        return jsonify({"ok": False, "error": "AI API Key 未配置"}), 400
-    if not model:
-        return jsonify({"ok": False, "error": "AI 模型未配置"}), 400
+    ai = AIClient.from_config()
+    missing = ai.check_configured()
+    if missing:
+        return jsonify({"ok": False, "error": missing[0]}), 400
+    db_system_prompt = ConfigManager(Storage()).get("ai_system_prompt") or ""
 
     # 图片根目录
     images_root = os.path.join(
@@ -393,44 +365,33 @@ def ai_vision():
     max_retries = 3
 
     async def _do_request(attempt: int) -> dict:
-        t0 = time.perf_counter()
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": final_messages,
-                    "tools": [tool_def],
-                    "tool_choice": {
-                        "type": "function",
-                        "function": {"name": tool_name},
-                    },
-                    "max_tokens": 4096,
-                },
+        try:
+            resp, duration_ms = await ai.chat_completion(
+                messages=final_messages,
+                tools=[tool_def],
+                tool_choice={"type": "function", "function": {"name": tool_name}},
+                max_tokens=4096,
             )
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        if resp.status_code != 200:
-            resp_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            error_msg = resp_data.get("error", {}).get("message", resp.text[:200])
-            return {"ok": False, "error": f"{resp.status_code}: {error_msg}", "duration_ms": duration_ms, "attempt": attempt}
+        except httpx.ConnectError:
+            return {"ok": False, "error": f"无法连接到 {ai.base_url}", "duration_ms": 0, "attempt": attempt}
+        except httpx.TimeoutException:
+            return {"ok": False, "error": "请求超时（120s）", "duration_ms": 0, "attempt": attempt}
 
         resp_data = resp.json()
-        usage = resp_data.get("usage", {})
-        choice = (resp_data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
 
-        tool_calls = msg.get("tool_calls")
+        if not AIClient.response_ok(resp):
+            return {"ok": False, "error": f"{resp.status_code}: {AIClient.error_message(resp, resp_data)}", "duration_ms": duration_ms, "attempt": attempt}
+
+        usage = AIClient.extract_usage(resp_data)
+        tool_calls = AIClient.extract_tool_calls(resp_data)
+
         if not tool_calls:
-            logger.warning(f"AI vision attempt {attempt}: no tool_calls in response, content={str(msg.get('content',''))[:200]}")
+            content = AIClient.extract_content(resp_data)
+            logger.warning(f"AI vision attempt {attempt}: no tool_calls in response, content={content[:200]}")
             return {
                 "ok": False,
                 "error": "模型未调用工具（未返回 tool_calls），将重试",
-                "raw_content": msg.get("content", "")[:500],
+                "raw_content": content[:500],
                 "duration_ms": duration_ms,
                 "attempt": attempt,
             }
@@ -454,10 +415,7 @@ def ai_vision():
                     "result": args,
                     "attempts": attempt,
                     "duration_ms": duration_ms,
-                    "usage": {
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                    },
+                    "usage": usage,
                 }
 
         logger.warning(f"AI vision attempt {attempt}: tool {tool_name} not found in tool_calls")
@@ -474,10 +432,6 @@ def ai_vision():
             logger.info(f"AI vision attempt {attempt}/{max_retries}")
             try:
                 result = await _do_request(attempt)
-            except httpx.ConnectError:
-                result = {"ok": False, "error": f"无法连接到 {base_url}", "attempt": attempt}
-            except httpx.TimeoutException:
-                result = {"ok": False, "error": "请求超时（120s）", "attempt": attempt}
             except FileNotFoundError as e:
                 return jsonify({"ok": False, "error": str(e)}), 404
             except RuntimeError as e:
@@ -547,17 +501,10 @@ def generate_template():
     except ValueError:
         return jsonify({"ok": False, "error": f"Invalid table name: {table}"}), 400
 
-    config_mgr = ConfigManager(Storage())
-    base_url = (config_mgr.get("ai_base_url") or "").strip().rstrip("/")
-    api_key = (config_mgr.get("ai_api_key") or "").strip()
-    model = (config_mgr.get("ai_model") or "").strip()
-
-    if not base_url:
-        return jsonify({"ok": False, "error": "AI Base URL 未配置"}), 400
-    if not api_key:
-        return jsonify({"ok": False, "error": "AI API Key 未配置"}), 400
-    if not model:
-        return jsonify({"ok": False, "error": "AI 模型未配置"}), 400
+    ai = AIClient.from_config()
+    missing = ai.check_configured()
+    if missing:
+        return jsonify({"ok": False, "error": missing[0]}), 400
 
     s = Storage()
     cols = s.execute(f"PRAGMA table_info([{table}])", fetch="all")
@@ -616,33 +563,23 @@ def generate_template():
     ]
 
     async def _do():
-        t0 = time.perf_counter()
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                f"{base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": 4096,
-                    "temperature": 0.7,
-                },
+        try:
+            resp, duration_ms = await ai.chat_completion(
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.7,
             )
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        if resp.status_code != 200:
-            try:
-                resp_data = resp.json()
-            except Exception:
-                resp_data = {}
-            error_msg = resp_data.get("error", {}).get("message", resp.text[:200])
-            return {"ok": False, "error": f"{resp.status_code}: {error_msg}", "duration_ms": duration_ms}
+        except httpx.ConnectError:
+            return {"ok": False, "error": f"无法连接到 {ai.base_url}"}
+        except httpx.TimeoutException:
+            return {"ok": False, "error": "请求超时（120s）"}
 
         resp_data = resp.json()
-        content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        if not AIClient.response_ok(resp):
+            return {"ok": False, "error": f"{resp.status_code}: {AIClient.error_message(resp, resp_data)}", "duration_ms": duration_ms}
+
+        content = AIClient.extract_content(resp_data)
 
         template = content.strip()
         if template.startswith("```html"):
@@ -653,15 +590,12 @@ def generate_template():
             template = template[:-3]
         template = template.strip()
 
-        usage = resp_data.get("usage", {})
+        usage = AIClient.extract_usage(resp_data)
         return {
             "ok": True,
             "template": template,
             "duration_ms": duration_ms,
-            "usage": {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-            },
+            "usage": usage,
         }
 
     try:
@@ -675,10 +609,6 @@ def generate_template():
             )
             logger.info(f"模板已缓存: table={table}")
         return jsonify(result)
-    except httpx.ConnectError:
-        return jsonify({"ok": False, "error": f"无法连接到 {base_url}"}), 502
-    except httpx.TimeoutException:
-        return jsonify({"ok": False, "error": "请求超时（120s）"}), 504
     except Exception as e:
         logger.error(f"generate-template failed: {e}\n{traceback.format_exc()}")
         return jsonify({"ok": False, "error": str(e)}), 500
