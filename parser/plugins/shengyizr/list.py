@@ -8,7 +8,7 @@ from ._base import SimplePageParser
 class ShengyiZRListParser(SimplePageParser):
     """58 生意转让列表页."""
 
-    async def on_wait_ready(self, page) -> None:
+    async def on_wait_ready(self, page, **kwargs) -> None:
         """等待列表项渲染完成（redirect guard 结束后列表元素出现）。
 
         超时时抛异常，由 request_pool 捕获并标记为 failed。

@@ -15,7 +15,7 @@ class ShengyiZRDetailParser(SimplePageParser):
     匹配 URL: ``58.com/shangpu/{infoId}x.shtml``
     """
 
-    async def on_wait_ready(self, page) -> None:
+    async def on_wait_ready(self, page, **kwargs) -> None:
         """等待详情页渲染完成（标题 + 价格元素出现）。
 
         超时时抛异常，由 request_pool 捕获并标记为 failed。
