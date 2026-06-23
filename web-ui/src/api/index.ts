@@ -49,7 +49,12 @@ export const configApi = {
     url: string
     parser?: string       // 可选, 从 Parser 卡片进入时携带
     show_window?: boolean // 可选, 显示浏览器窗口（调试用）
+    keep_open_seconds?: number // 可选, 保持浏览器打开 N 秒
   }) => http.post('/config/test-url', payload, { timeout: 60000 }),
+  /** 列出当前保持打开的 debug 浏览器会话 */
+  getDebugPages: () => api.get('/config/debug-pages'),
+  /** 手动关闭 debug 浏览器页面 */
+  closeDebugPage: (sessionId: string) => api.post('/config/close-debug-page', { session_id: sessionId }),
   /** 测试 AI 服务连接 */
   testAi: () => api.post('/config/test-ai'),
   /** AI 生成 HTML 预览模板 */

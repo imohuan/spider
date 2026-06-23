@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { configApi } from '@/api'
 import { useTestHistory } from '@/composables/useTestHistory'
 
@@ -14,8 +14,39 @@ const { items: historyItems, add: addHistory, remove: removeHistory, clearAll: c
 // ── 测试配置 ──
 const testUrl = ref('')
 const showWindow = ref(false)
+const keepOpen = ref(false)
 const testRunning = ref(false)
 const testResult = ref<any>(null)
+
+// ── Debug 会话 ──
+const debugPages = ref<any[]>([])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollDebugPages() {
+  try {
+    const pages = await configApi.getDebugPages()
+    debugPages.value = pages || []
+  } catch {
+    debugPages.value = []
+  }
+}
+
+async function closeDebugPage(sessionId: string) {
+  try {
+    await configApi.closeDebugPage(sessionId)
+    debugPages.value = debugPages.value.filter(p => p.session_id !== sessionId)
+  } catch {
+    // ignore
+  }
+}
+
+onMounted(() => {
+  pollDebugPages()
+  pollTimer = setInterval(pollDebugPages, 5000)
+})
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
 
 // ── 执行测试 ──
 async function runTest() {
@@ -27,6 +58,7 @@ async function runTest() {
     url: testUrl.value.trim(),
     show_window: showWindow.value,
   }
+  if (keepOpen.value) payload.keep_open_seconds = 3600
   if (props.parserName) payload.parser = props.parserName
 
   try {
@@ -37,6 +69,11 @@ async function runTest() {
       url: testUrl.value.trim(),
       parser: props.parserName || undefined,
     })
+
+    // 立即刷新 debug pages
+    if (result.debug_session_id) {
+      pollDebugPages()
+    }
   } catch (err: any) {
     testResult.value = {
       ok: false,
@@ -169,6 +206,46 @@ const resultColumns = computed(() => {
                 <span>显示浏览器窗口</span>
                 <span class="text-[10px] text-outline">(调试用，仅 browser 模式生效)</span>
               </label>
+              <!-- 保持浏览器打开开关 -->
+              <label class="flex items-center gap-ax-xs cursor-pointer select-none text-[12px] text-secondary hover:text-primary transition-colors">
+                <input type="checkbox" v-model="keepOpen" class="w-4 h-4 rounded border-outline-variant text-primary cursor-pointer" />
+                <span class="material-symbols-outlined text-[16px]">schedule</span>
+                <span>保持浏览器打开</span>
+                <span class="text-[10px] text-outline">(1 小时后自动关闭，可手动关闭)</span>
+              </label>
+            </section>
+
+            <!-- Debug 会话列表 -->
+            <section v-if="debugPages.length" class="bg-amber-50 border border-amber-300 rounded-lg p-ax-md space-y-ax-xs">
+              <div class="flex items-center justify-between mb-ax-xs">
+                <div class="flex items-center gap-ax-xs">
+                  <span class="material-symbols-outlined text-[16px] text-amber-700">visibility</span>
+                  <span class="font-label-md text-label-md font-semibold text-amber-800">保持打开的浏览器会话</span>
+                </div>
+                <div class="flex items-center gap-ax-xs">
+                  <AxButton
+                    v-for="page in debugPages"
+                    :key="page.session_id"
+                    variant="outline"
+                    size="sm"
+                    icon="close"
+                    @click="closeDebugPage(page.session_id)"
+                  >关闭 <span class="text-[10px] text-outline ml-ax-xs">{{ page.session_id.slice(0, 6) }}</span></AxButton>
+                </div>
+              </div>
+              <div
+                v-for="page in debugPages"
+                :key="page.session_id"
+                class="bg-white border border-amber-200 rounded-md p-ax-xs"
+              >
+                <div class="flex items-center gap-ax-xs">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold font-mono">{{ page.parser }}</span>
+                  <span class="font-mono text-[11px] text-primary truncate">{{ page.url }}</span>
+                </div>
+                <div class="text-[10px] text-secondary mt-0.5">
+                  剩余 {{ Math.ceil(page.remaining_seconds / 60) }} 分钟
+                </div>
+              </div>
             </section>
 
             <!-- 模式信息（后端返回后展示） -->

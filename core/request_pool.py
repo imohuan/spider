@@ -28,6 +28,7 @@ from config import RAW_RESPONSE_DIR, PROJECT_ROOT
 
 
 from core.config_manager import ConfigManager
+from core.fake_storage import FakeStorage
 from core.logger import get_logger
 from core.state_machine import (
     ERROR_403,
@@ -76,6 +77,9 @@ class RequestPool:
         self._loop = loop  # 持久事件循环（production 模式传入，避免 Playwright 对象跨循环失效）
         self._active_tasks: set[asyncio.Task] = set()
         self.keep_browser_open: bool = False  # 调试用：True 则 process_url 完成后不关闭 page/browser
+        self._last_page: Any = None       # keep_browser_open 时捕获的 page
+        self._last_parser: Any = None     # 对应的 parser（用于 on_before_page_close 钩子）
+        self._debug_sessions: dict[str, dict] = {}  # session_id → {page, parser, browser, expiry, url, timer}
 
     async def _close_page_with_hook(self, page: Any, parser: Any) -> None:
         """关闭 page 前调用 Parser 生命周期钩子。"""
@@ -115,8 +119,12 @@ class RequestPool:
     async def _browser_page_lifecycle(
         self, browser: Any, url: str, parser: Any, proxy_url: str | None,
         cookies: list[dict] | None = None,
+        extra_timeout_ms: int = 0,
     ) -> tuple[Any, int]:
-        """创建页面 → Cookie 注入 → goto → 生命周期钩子 → 返回 (page, duration_ms)。"""
+        """创建页面 → Cookie 注入 → goto → 生命周期钩子 → 返回 (page, duration_ms)。
+
+        :param extra_timeout_ms: 额外超时（毫秒），最终超时 = max(config, extra_timeout_ms)
+        """
         start = time.monotonic()
         page = await browser.new_page(url=None, proxy=proxy_url)
 
@@ -132,6 +140,8 @@ class RequestPool:
             await on_page_created(page, url)
 
         timeout_ms = self.config.get_int("request_timeout", 30) * 1000
+        if extra_timeout_ms > timeout_ms:
+            timeout_ms = extra_timeout_ms
         await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -167,11 +177,12 @@ class RequestPool:
 
     # ---------------- 主入口 ----------------
 
-    def process_url(self, task: dict, parser: Any) -> str:
+    def process_url(self, task: dict, parser: Any, show_window: bool = False) -> str:
         """处理单个 URL，返回最终状态字符串。
 
         :param task: 状态机返回的任务字典 {id, url, ...}
         :param parser: 匹配的 Parser 实例
+        :param show_window: 调试模式 — browser 模式下将页面弹到前台
         :return: "success" / "failed" / "blocked" / "skipped"
         """
         queue_id = task["id"]
@@ -184,16 +195,16 @@ class RequestPool:
         try:
             if self._loop is not None and not self._loop.is_closed():
                 result = self._loop.run_until_complete(
-                    self._process_url_async(task, parser)
+                    self._process_url_async(task, parser, show_window=show_window)
                 )
             else:
-                result = asyncio.run(self._process_url_async(task, parser))
+                result = asyncio.run(self._process_url_async(task, parser, show_window=show_window))
             return result
         except RuntimeError as e:
             if "asyncio.run() cannot be called from a running event loop" in str(e):
                 loop = asyncio.get_running_loop()
                 return loop.run_until_complete(
-                    self._process_url_async(task, parser)
+                    self._process_url_async(task, parser, show_window=show_window)
                 )
             raise
         except Exception as e:
@@ -201,7 +212,7 @@ class RequestPool:
             self.state_machine.mark_failed(queue_id, ERROR_NETWORK, str(e))
             return "failed"
 
-    async def _process_url_async(self, task: dict, parser: Any) -> str:
+    async def _process_url_async(self, task: dict, parser: Any, show_window: bool = False) -> str:
         """异步处理单个 URL 的完整流程。
 
         根据 task.fetch_mode 分支：
@@ -403,6 +414,21 @@ class RequestPool:
             page, browser_duration_ms = await self._browser_page_lifecycle(
                 self.browser, url, parser, proxy_url, cookies=playwright_cookies,
             )
+            self._last_page = page
+            self._last_parser = parser
+
+            # show_window 调试增强（仅 browser 模式）
+            if show_window:
+                try:
+                    await page.bring_to_front()
+                    await page.evaluate("window.focus();")
+                    await page.evaluate(
+                        "document.title = '>>> 测试中 <<< ' + document.title; "
+                        "setTimeout(() => { document.title = document.title.replace('>>> 测试中 <<< ', ''); }, 800);"
+                    )
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
 
             # 验证码检测
             if self.captcha_handler is not None and await self.captcha_handler.is_captcha_page_async(page):
@@ -734,38 +760,6 @@ class RequestPool:
     # ---------------- 原始响应保存 ----------------
 
     @staticmethod
-    def _save_test_raw_response(url: str, content: str, suffix: str = "html") -> str:
-        """test-url 专用：保存原始响应，返回相对于 PROJECT_ROOT 的路径。
-
-        文件名用 URL host + md5 hash + 时间戳，不依赖 queue_id/request_id。
-
-        :param url: 抓取的 URL
-        :param content: 响应文本内容
-        :param suffix: 文件扩展名（默认 html）
-        :return: 相对路径，如 ``data/raw_responses/www.tianyancha.com_a1b2c3_20260623_124100.html``
-        """
-        import hashlib
-        os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        try:
-            host = urlparse(url).hostname or "unknown"
-        except Exception:
-            host = "unknown"
-        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()[:6]
-        filename = f"{host}_{url_hash}_{ts}.{suffix}"
-        filepath = os.path.join(RAW_RESPONSE_DIR, filename)
-        max_size = 5 * 1024 * 1024
-        if len(content) > max_size:
-            half = max_size // 2
-            content = content[:half] + "\n\n<!-- ... 响应过大，已截断 ... -->\n\n" + content[-half:]
-            logger.warning(f"test-url 原始响应过大，已截断至 5MB: {filepath}")
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        rel = os.path.relpath(filepath, PROJECT_ROOT)
-        logger.info(f"[test-url] 原始响应已保存: {rel}")
-        return rel
-
-    @staticmethod
     def _save_raw_response(queue_id: int, request_id: int, content: str) -> str:
         """保存原始响应文本到 raw_responses，返回相对于 PROJECT_ROOT 的路径。
 
@@ -851,144 +845,271 @@ class RequestPool:
             return cookies
         return []
 
-    # ---------------- 原始 HTML 获取（无 DB 写入）----------------
+    # ---------------- test-url 调试入口 ----------------
 
-    async def fetch_raw_html(self, url: str, parser: Any, fetch_mode: str = "browser", show_window: bool = False) -> dict:
-        """Get raw HTML without DB writes. For test-url debugging.
+    async def debug_parse(
+        self, url: str, registry: Any, parser_name: str = "",
+        show_window: bool = False, keep_open_seconds: int = 0,
+    ) -> dict:
+        """test-url 完整流程：创建 debug RequestPool → process_url → 读取捕获结果。
 
-        :param show_window: 如果 True，goto 后将页面弹到前台（仅 browser 模式生效）
-        Returns dict: {html, duration_ms, ...}
+        与 :meth:`process_url` 走 **完全相同** 的代码路径（``_process_url_async``），
+        区别仅在于注入 ``DebugStorage``（捕获数据不写 DB）+ ``NoOpStateMachine`` + 无代理/验证码/图片下载。
+
+        :param keep_open_seconds: > 0 时抓取完成后保持浏览器页面打开（默认 1 小时），
+            返回 debug_session_id 供前端调用 close_debug_page 手动关闭。
+        :returns: {ok, parser, fetch_mode, duration_ms, data, data_count, raw_preview, raw_path, ...}
         """
-        if fetch_mode == "http":
-            return await self._fetch_raw_html_http(url, parser)
+        import time as _time
+        import uuid as _uuid
 
-        # --- Browser 模式 ---
-        if self.browser is None:
-            raise RuntimeError("browser 未初始化")
+        t0 = _time.perf_counter()
 
-        logger.info(f"[fetch_raw_html] browser.headless={self.browser.headless} browser._browser={'OK' if self.browser._browser else 'None'}")
-        browser_start = time.monotonic()
-        logger.info(f"[fetch_raw_html] new_page 前...")
-        page = await self.browser.new_page(url=None)
-        logger.info(f"[fetch_raw_html] new_page 完成")
-
-        # Parser 生命周期钩子（goto 前注入 JS 脚本）
-        on_page_created = getattr(parser, "on_page_created", None)
-        if on_page_created is not None:
-            await on_page_created(page, url)
-
-        timeout_ms = self.config.get_int("request_timeout", 30) * 1000
-        if show_window:
-            timeout_ms = max(timeout_ms, 60000)  # 调试模式至少 60s 超时
-        logger.info(f"[fetch_raw_html] page.goto 前 timeout={timeout_ms}ms ...")
-        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-        logger.info(f"[fetch_raw_html] page.goto 完成")
-
-        # 调试：弹到前台方便观察
-        if show_window:
-            try:
-                logger.info(f"[fetch_raw_html] bring_to_front 前...")
-                await page.bring_to_front()
-                # 强制 OS 级别窗口前置（Windows 专用）
-                await page.evaluate("window.focus();")
-                # 闪烁标题栏提示
-                await page.evaluate(
-                    "document.title = '>>> 测试中 <<< ' + document.title; "
-                    "setTimeout(() => { document.title = document.title.replace('>>> 测试中 <<< ', ''); }, 800);"
-                )
-                await asyncio.sleep(0.3)
-                logger.info(f"[fetch_raw_html] bring_to_front 完成")
-            except Exception:
-                pass  # 弹窗失败不影响抓取
-
-        browser_duration_ms = int((time.monotonic() - browser_start) * 1000)
-
-        # Parser 生命周期钩子（滚动懒加载等）
-        on_page_loaded = getattr(parser, "on_page_loaded", None)
-        if on_page_loaded is not None:
-            await on_page_loaded(page, url)
-
-        # Parser 自定义等待（redirect guard 完成 / 元素渲染）
-        on_wait_ready = getattr(parser, "on_wait_ready", None)
-        if on_wait_ready is not None:
-            await on_wait_ready(page)
-
-        # 获取 HTML（重试最多 3 次，等页面稳定）
-        logger.info(f"[fetch_raw_html] 获取 HTML content ...")
-        html = ""
-        for _retry in range(3):
-            try:
-                await page.wait_for_load_state("domcontentloaded")
-                html = await page.content() if hasattr(page, "content") else ""
-                if html and len(html) > 100:
+        # ── 1. 匹配 Parser ──
+        if parser_name:
+            matched_cls = None
+            for cls in registry.classes:
+                if cls.__name__ == parser_name:
+                    matched_cls = cls
                     break
-            except Exception:
-                await asyncio.sleep(1)
+            if not matched_cls:
+                return {"ok": False, "error": f"Parser '{parser_name}' 不存在"}
 
-        logger.info(f"[fetch_raw_html] HTML 获取完成 len={len(html)}")
+            parser = registry.match(url)
+            if parser is None or parser.__class__.__name__ != parser_name:
+                instance = matched_cls(registry.tools)
+                if not instance.matches(url):
+                    return {"ok": False, "error": f"URL 不匹配 Parser '{parser_name}'"}
+                parser = instance
+        else:
+            parser = registry.match(url)
+            if not parser:
+                return {"ok": False, "error": "未找到匹配该 URL 的 Parser"}
 
-        # show_window 时保持窗口几秒，让用户能看到渲染结果
-        if show_window:
+        # ── 2. Cookie 预设匹配（与 queue.py 入队逻辑一致）──
+        request_config: dict = {}
+        try:
+            matched_preset = self.storage.match_cookie_preset(url)
+            if matched_preset is not None:
+                preset_cookies = json.loads(matched_preset[3])  # cookies_json 列
+                if isinstance(preset_cookies, list) and len(preset_cookies) > 0:
+                    request_config["cookies"] = {
+                        item["name"]: item["value"]
+                        for item in preset_cookies
+                        if "name" in item and "value" in item
+                    }
+        except Exception:
+            pass
+
+        # ── 3. 构建 task dict ──
+        fetch_mode = (
+            getattr(parser, "preferred_fetch_mode", None)
+            or self.config.get("fetch_mode", "browser")
+        )
+        if getattr(parser, "requires_browser", False):
+            fetch_mode = "browser"
+
+        task = {
+            "id": 0,
+            "url": url,
+            "fetch_mode": fetch_mode,
+            "request_config": json.dumps(request_config) if request_config else None,
+        }
+
+        logger.info(
+            f"[debug_parse] parser={parser.__class__.__name__} "
+            f"fetch_mode={fetch_mode} show_window={show_window} "
+            f"keep_open={keep_open_seconds}s "
+            f"cookies={'yes' if request_config.get('cookies') else 'no'} "
+            f"url={url[:80]}"
+        )
+
+        # ── 4. 创建 debug RequestPool（共享 browser/config/loop，隔离 storage/state）──
+        debug_storage = _DebugStorage(self.storage)
+        debug_pool = RequestPool(
+            storage=debug_storage,
+            config=self.config,
+            state_machine=_NoOpStateMachine(),
+            proxy_pool=None,       # 无代理
+            browser=self.browser,  # 共享浏览器
+            captcha_handler=None,  # 无验证码检测
+            image_downloader=None, # 无图片下载
+            loop=self._loop,       # 共享事件循环
+        )
+        if keep_open_seconds > 0:
+            debug_pool.keep_browser_open = True
+
+        # ── 5. 直接调用 _process_url_async（debug_parse 本身已在事件循环中）──
+        status = await debug_pool._process_url_async(task, parser, show_window=show_window)
+        total_duration_ms = int((_time.perf_counter() - t0) * 1000)
+
+        # ── 6. 处理 keep_open（仅 browser 模式 + 成功拿到 page 时）──
+        debug_session_id = ""
+        debug_expires_at = 0
+        if keep_open_seconds > 0 and debug_pool._last_page is not None and self.browser is not None:
+            import threading
+            session_id = _uuid.uuid4().hex[:8]
+            expiry = _time.time() + keep_open_seconds
+            self._debug_sessions[session_id] = {
+                "page": debug_pool._last_page,
+                "parser": debug_pool._last_parser,
+                "browser": self.browser,
+                "expiry": expiry,
+                "url": url,
+                "parser_name": parser.__class__.__name__,
+            }
+            # 自动过期关闭
+            timer = threading.Timer(
+                keep_open_seconds,
+                lambda: self._auto_close_debug_page(session_id),
+            )
+            timer.daemon = True
+            timer.start()
+            self._debug_sessions[session_id]["timer"] = timer
+
+            debug_session_id = session_id
+            debug_expires_at = int(expiry)
+            logger.info(f"[debug_parse] 浏览器保持打开 session={session_id} expires_at={debug_expires_at}")
+
+        # ── 7. 从 DebugStorage 读取捕获结果 ──
+        raw_path = debug_storage.captured_raw_path or ""
+        raw_preview = ""
+        if raw_path:
             try:
-                logger.info(f"[fetch_raw_html] show_window: 保持窗口 3s ...")
-                await asyncio.sleep(3)
-                logger.info(f"[fetch_raw_html] show_window: 3s 结束")
+                abs_path = os.path.join(PROJECT_ROOT, raw_path)
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    raw_preview = f.read()[:5000]
             except Exception:
                 pass
 
-        await self.browser.close_page(page)
-        logger.info(f"[fetch_raw_html] 完成 return")
+        result: dict = {
+            "ok": status == "success",
+            "parser": parser.__class__.__name__,
+            "fetch_mode": fetch_mode,
+            "duration_ms": total_duration_ms,
+            "fetch_duration_ms": debug_storage.captured_duration_ms or 0,
+            "raw_preview": raw_preview,
+            "raw_path": raw_path,
+        }
+        if debug_session_id:
+            result["debug_session_id"] = debug_session_id
+            result["debug_expires_at"] = debug_expires_at
 
-        # 保存原始响应
-        raw_path = self._save_test_raw_response(url, html) if html else ""
-
-        return {"html": html, "duration_ms": browser_duration_ms, "raw_path": raw_path}
-
-    async def _fetch_raw_html_http(self, url: str, parser: Any) -> dict:
-        """HTTP mode for fetch_raw_html — no DB writes, no proxy, no parse."""
-
-        # 构建合并请求头（复用 _fetch_http 的头部合并逻辑）
-        if self.config.get_bool("anti_bot_random_ua", False):
-            ua = self._get_random_ua()
+        if status == "success":
+            result["data"] = debug_storage.captured_data
+            result["data_count"] = len(debug_storage.captured_data)
         else:
-            ua = self.config.get(
-                "http_user_agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            )
+            result["error"] = debug_storage.captured_error or f"抓取状态: {status}"
 
-        merged_headers = {"User-Agent": ua}
+        return result
 
-        default_headers_str = self.config.get("http_default_headers", "{}")
-        try:
-            default_headers = json.loads(default_headers_str or "{}")
-            merged_headers.update(default_headers)
-        except json.JSONDecodeError:
-            pass
+    def _auto_close_debug_page(self, session_id: str) -> None:
+        """Timer 回调 — 自动关闭过期 debug 页面。"""
+        session = self._debug_sessions.pop(session_id, None)
+        if session is None:
+            return
+        page = session.get("page")
+        browser = session.get("browser")
+        if page is not None and browser is not None:
+            loop = self._loop
+            if loop and not loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    browser.close_page(page), loop
+                )
+        logger.info(f"[debug_parse] 自动关闭过期 session={session_id}")
 
-        merged_headers.update(getattr(parser, "http_headers", {}))
+    async def close_debug_page(self, session_id: str) -> dict:
+        """手动关闭 debug 页面（调用 on_before_page_close 钩子 + close_page）。"""
+        session = self._debug_sessions.pop(session_id, None)
+        if session is None:
+            return {"ok": False, "error": f"session '{session_id}' 不存在或已过期"}
 
-        timeout = self.config.get_int("request_timeout", 30)
+        # 取消自动关闭 timer
+        timer = session.get("timer")
+        if timer is not None:
+            timer.cancel()
 
-        async with httpx.AsyncClient(
-            follow_redirects=self.config.get_bool("http_follow_redirects", True),
-            timeout=httpx.Timeout(timeout),
-        ) as client:
-            start = time.monotonic()
-            response = await client.request("GET", url, headers=merged_headers)
-            duration_ms = int((time.monotonic() - start) * 1000)
-            html = response.text
-            raw_path = self._save_test_raw_response(url, html) if html else ""
-            return {
-                "html": html,
-                "duration_ms": duration_ms,
-                "status_code": response.status_code,
-                "content_type": response.headers.get("content-type", ""),
-                "raw_path": raw_path,
-            }
+        page = session.get("page")
+        parser = session.get("parser")
+        browser = session.get("browser")
+
+        if page is not None and browser is not None:
+            # 调用 _close_page_with_hook（含 on_before_page_close 钩子）
+            await self._close_page_with_hook(page, parser)
+
+        logger.info(f"[debug_parse] 手动关闭 session={session_id}")
+        return {"ok": True, "session_id": session_id}
+
+    def list_debug_pages(self) -> list[dict]:
+        """列出当前活跃的 debug 会话（供前端轮询）。"""
+        import time as _time
+        now = _time.time()
+        result = []
+        for sid, session in self._debug_sessions.items():
+            result.append({
+                "session_id": sid,
+                "url": session.get("url", ""),
+                "parser": session.get("parser_name", ""),
+                "expires_at": int(session.get("expiry", 0)),
+                "remaining_seconds": max(0, int(session.get("expiry", 0) - now)),
+            })
+        return result
 
     # ---------------- 统计 ----------------
 
     def stats(self) -> dict[str, int]:
         """返回当前活跃任务数。"""
         return {"active": len(self._active_tasks)}
+
+
+# ==================== debug_parse 辅助类 ====================
+
+
+class _DebugStorage(FakeStorage):
+    """FakeStorage 子类 — 捕获 save_business_data / mark_request_* 的数据供 debug_parse 读取。"""
+
+    def __init__(self, real_storage: Storage) -> None:
+        super().__init__(real_storage)
+        self.captured_data: list[dict] = []
+        self.captured_raw_path: str = ""
+        self.captured_duration_ms: int | None = None
+        self.captured_error: str = ""
+
+    def save_business_data(self, table_name: str, rows: list[dict]) -> None:
+        self.captured_data = rows
+
+    def create_request(self, queue_id: int, url: str, proxy_ip: str | None, method: str = "GET") -> int:
+        return 0  # 给一个固定 ID，让 _save_raw_response 文件名正常
+
+    def mark_request_success(
+        self, request_id: int, extracted_data=None, image_paths=None,
+        duration_ms: int | None = None, response_size: int | None = None,
+        status_code: int = 200, raw_response_path: str | None = None,
+        response_headers: dict | None = None, request_headers: dict | None = None,
+    ) -> None:
+        self.captured_duration_ms = duration_ms
+        if raw_response_path:
+            self.captured_raw_path = raw_response_path
+
+    def mark_request_failed(
+        self, request_id: int, error_msg: str, status_code: int | None = None,
+        duration_ms: int | None = None, raw_response_path: str | None = None,
+        response_headers: dict | None = None,
+    ) -> None:
+        self.captured_error = error_msg
+        if raw_response_path:
+            self.captured_raw_path = raw_response_path
+
+
+class _NoOpStateMachine:
+    """空状态机 — 所有方法空操作，供 debug_parse 使用。
+
+    需覆盖 _process_url_async 调用的全部 state_machine 方法：
+    mark_done / mark_failed / mark_blocked / mark_skipped / increment_ip_switch
+    """
+
+    def mark_done(self, queue_id: int) -> None: pass
+    def mark_failed(self, queue_id: int, error_type: str, error_msg: str) -> None: pass
+    def mark_blocked(self, queue_id: int, error_type: str, error_msg: str) -> None: pass
+    def mark_skipped(self, queue_id: int) -> None: pass
+    def increment_ip_switch(self, queue_id: int) -> bool: return False

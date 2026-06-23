@@ -49,22 +49,8 @@ def test_url():
         {
             "url": "https://cd.58.com/shangpu/xxx.shtml",
             "parser": "ShengyiZRDetailParser",   // 可选, 不传则自动匹配
-            "show_window": true                   // 可选, 显示浏览器窗口（调试用）
-        }
-
-    Response::
-
-        {
-            "ok": true,
-            "parser": "ShengyiZRDetailParser",
-            "fetch_mode": "browser",
-            "duration_ms": 2345,
-            "fetch_duration_ms": 2100,
-            "parse_duration_ms": 45,
-            "data": [{"title": "...", "price_num": "...", ...}],
-            "data_count": 1,
-            "raw_preview": "<html>...",
-            "raw_path": "data/raw_responses/xxx.html"
+            "show_window": true,                  // 可选, 显示浏览器窗口（调试用）
+            "keep_open_seconds": 3600             // 可选, 保持浏览器打开 N 秒（默认 0=不保持）
         }
     """
     import asyncio
@@ -77,6 +63,7 @@ def test_url():
     url = data["url"].strip()
     parser_name = (data.get("parser") or "").strip()
     show_window = bool(data.get("show_window", False))
+    keep_open_seconds = int(data.get("keep_open_seconds", 0))
 
     components = current_app.config.get("CRAWLER_COMPONENTS", {})
     request_pool = components.get("request_pool")
@@ -88,7 +75,9 @@ def test_url():
         return jsonify({"ok": False, "error": "Registry 未初始化"}), 503
 
     async def _do() -> dict:
-        return await request_pool.debug_parse(url, registry, parser_name, show_window)
+        return await request_pool.debug_parse(
+            url, registry, parser_name, show_window, keep_open_seconds,
+        )
 
     try:
         event_loop_obj = components.get("event_loop")
@@ -111,6 +100,48 @@ def test_url():
             "error": str(e),
             "error_type": type(e).__name__,
         }), 500
+
+
+@bp.route("/debug-pages", methods=["GET"])
+def list_debug_pages():
+    """列出当前保持打开的 debug 浏览器会话。"""
+    from flask import current_app
+    components = current_app.config.get("CRAWLER_COMPONENTS", {})
+    request_pool = components.get("request_pool")
+    if not request_pool:
+        return jsonify([])
+    return jsonify(request_pool.list_debug_pages())
+
+
+@bp.route("/close-debug-page", methods=["POST"])
+def close_debug_page():
+    """手动关闭 debug 浏览器页面（调用 on_before_page_close 钩子后关闭）。"""
+    import asyncio
+    from flask import current_app
+
+    data = request.get_json()
+    if not data or not data.get("session_id"):
+        return jsonify({"ok": False, "error": "session_id is required"}), 400
+
+    session_id = data["session_id"]
+    components = current_app.config.get("CRAWLER_COMPONENTS", {})
+    request_pool = components.get("request_pool")
+    if not request_pool:
+        return jsonify({"ok": False, "error": "RequestPool 未初始化"}), 503
+
+    async def _do() -> dict:
+        return await request_pool.close_debug_page(session_id)
+
+    try:
+        event_loop_obj = components.get("event_loop")
+        if event_loop_obj and not event_loop_obj.is_closed():
+            result = event_loop_obj.run_until_complete(_do())
+        else:
+            result = asyncio.run(_do())
+        return jsonify(result), 200 if result.get("ok") else 404
+    except Exception as e:
+        logger.error(f"close-debug-page 失败: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/test-ai", methods=["POST"])
