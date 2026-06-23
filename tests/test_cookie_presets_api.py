@@ -1,17 +1,55 @@
-"""cookie_presets API 集成测试。"""
+"""cookie_presets API 集成测试。
+
+使用临时 SQLite 文件隔离测试数据，不会污染生产数据库。
+清除夹具 scope=session 共享单个临时库，避免重复创建。
+teardown 后临时文件由系统 temp 目录自动回收（Windows WAL 锁阻止同步删除）。
+"""
 import json
+import os
+import tempfile
+
 import pytest
 from web.app import create_app
 from core.storage import Storage
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def app():
-    app = create_app('dev')
-    app.testing = True
-    with app.app_context():
+    """创建使用临时数据库的 Flask 测试 app（session 级共享）。
+
+    monkey-patch core.storage.DB_PATH 指向临时文件，
+    确保所有 Storage() 实例操作的是测试专用库。
+    """
+    import config
+    import core.storage as st_mod
+
+    # 保存原始路径
+    orig_config = config.DB_PATH
+    orig_storage = st_mod.DB_PATH
+
+    # 创建临时数据库文件
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.db', prefix='pytest_cookie_')
+    os.close(tmp_fd)
+
+    # 改指向临时文件（config 和 core.storage 两处都要改，
+    # 因为 core.storage 在模块顶层 import 了 config.DB_PATH）
+    config.DB_PATH = tmp_path
+    st_mod.DB_PATH = tmp_path
+
+    # 注册退出时恢复（不尝试删除 — WAL 模式在 Windows 下锁文件，
+    # 暂存到系统 temp 目录由 OS 自动回收）
+    def restore():
+        config.DB_PATH = orig_config
+        st_mod.DB_PATH = orig_storage
+
+    import atexit
+    atexit.register(restore)
+
+    app_obj = create_app('dev')
+    app_obj.testing = True
+    with app_obj.app_context():
         Storage()._init_schema()
-    return app
+    yield app_obj
 
 
 @pytest.fixture
