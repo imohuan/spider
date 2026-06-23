@@ -12,7 +12,7 @@ const editing = ref<{ id?: number; name: string; domain: string; cookies_json: s
 
 async function load() {
   const res = await cookiePresetsApi.list()
-  presets.value = res.data.items
+  presets.value = res.items
 }
 
 function openAdd() {
