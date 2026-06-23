@@ -15,6 +15,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'config', name: 'config', component: () => import('@/views/ConfigView.vue'), meta: { title: '配置', desc: 'config 表 · 运行时可调参数' } },
       { path: 'parsers', name: 'parsers', component: () => import('@/views/ParsersView.vue'), meta: { title: 'Parser 管理', desc: '插件注册表 · 启用/禁用/测试' } },
       { path: 'logs', name: 'logs', component: () => import('@/views/LogsView.vue'), meta: { title: '日志', desc: '完整 run.log 显示 · 实时追加' } },
+      { path: 'cookie-presets', name: 'cookie-presets', component: () => import('@/views/CookiePresetsView.vue'), meta: { title: 'Cookie 预设', desc: 'cookie_presets 表 · 站点登录态管理' } },
     ],
   },
   {

@@ -26,6 +26,7 @@ const groups = [
       { id: 'captcha', name: '验证码日志', icon: 'verified_user', path: '/captcha' },
       { id: 'config', name: '配置', icon: 'settings', path: '/config' },
       { id: 'parsers', name: 'Parser 管理', icon: 'extension', path: '/parsers' },
+      { id: 'cookie-presets', name: 'Cookie 预设', icon: 'cookie', path: '/cookie-presets' },
     ],
   },
   {

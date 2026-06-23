@@ -71,3 +71,12 @@ export const parsersApi = {
   rescan: () => api.post('/parsers/rescan'),
   test: (name: string, url: string) => api.post(`/parsers/${name}/test`, { url }),
 }
+
+export const cookiePresetsApi = {
+  list: () => api.get('/cookie-presets'),
+  get: (id: number) => api.get(`/cookie-presets/${id}`),
+  save: (payload: { name: string; domain: string; cookies_json: string; id?: number }) =>
+    api.post('/cookie-presets', payload),
+  delete: (id: number) => api.del(`/cookie-presets/${id}`),
+  toggle: (id: number) => api.post(`/cookie-presets/${id}/toggle`),
+}
