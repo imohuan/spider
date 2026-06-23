@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { configApi } from '@/api'
 import { useNotify } from '@/components/ui'
@@ -45,6 +45,8 @@ function syncToUrl() {
 }
 
 watch([lng, lat, radius, sortBy, keyword], syncToUrl)
+
+onBeforeUnmount(() => { clearTimeout(syncTimer) })
 
 // ── 加载配置 ──
 onMounted(async () => {

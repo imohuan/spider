@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 // ── Props ──
 const props = defineProps<{
@@ -373,8 +373,11 @@ onMounted(async () => {
 
   try {
     await loadAMapScript()
+    await nextTick()
     initMap()
     loading.value = false
+    await nextTick()
+    if (map) map.resize()
     document.addEventListener('keydown', onKeydown)
   } catch (e: any) {
     loadError.value = '加载失败: ' + (e.message || String(e))
@@ -384,8 +387,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
-  clearMarkers()
-  if (map) map.destroy()
+  clearTimeout(toastTimer)
+  try { clearMarkers() } catch (_) {}
+  try { if (map) { map.destroy(); map = null } } catch (_) {}
 })
 
 // ── 暴露方法 ──
@@ -393,7 +397,7 @@ defineExpose({ search: doSearch, openDetail })
 </script>
 
 <template>
-  <div id="amap-app" class="flex w-full overflow-hidden" style="height: calc(100% + var(--spacing-margin) * 2); margin: calc(var(--spacing-margin) * -1)">
+  <div id="amap-app" class="flex h-full w-full overflow-hidden">
     <!-- ── 侧边栏 ── -->
     <aside class="w-[380px] min-w-[380px] h-full bg-surface-container-lowest border-r border-outline-variant flex flex-col overflow-hidden shadow-sm">
       <div class="px-4 pt-4 flex-shrink-0">
