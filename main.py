@@ -237,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         count = scheduler.seed(args.seed_urls, fetch_mode=args.fetch_mode)
         logger.info(f"种子入队: {count}/{len(args.seed_urls)}")
 
+    # 启动工作流调度器（始终启动，保证 Parser 入队任务能被消费）
+    workflow_scheduler.start()
+
     # Web 管理后台（后台线程启动，不阻塞爬虫主循环）
     if args.serve:
         from web.app import create_app
@@ -246,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         from web.api.crawler_control import init_scheduler
         init_scheduler(scheduler)
 
-        # 启动工作流调度器并挂 WebSocket 推送
+        # 挂 WebSocket 推送回调
         from web.socketio_handlers import push_workflow_task_update
         from web.app import socketio as ws_socketio
 
@@ -255,7 +258,6 @@ def main(argv: list[str] | None = None) -> int:
                 ws_socketio, tid, name, status, result, error
             )
         )
-        workflow_scheduler.start()
 
         server_thread = start_web_server_in_thread(
             web_app, host=args.web_host, port=args.web_port, logger=logger,

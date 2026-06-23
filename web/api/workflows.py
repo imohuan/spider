@@ -51,15 +51,23 @@ def run_workflow():
 
     Body: {"workflow_name": "report", "params": {"city": "北京"}}
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
     workflow_name = data.get("workflow_name")
     params = data.get("params", {})
 
     if not workflow_name:
         return jsonify({"error": "workflow_name is required"}), 400
 
+    if not isinstance(params, dict):
+        return jsonify({"error": "params must be a dict"}), 400
+
     registry = _get_registry()
-    if registry and workflow_name not in registry:
+    if registry is None:
+        return jsonify({"error": "Workflow registry not initialized"}), 500
+    if workflow_name not in registry:
         return jsonify({"error": f"workflow '{workflow_name}' not found"}), 400
 
     storage = _get_storage()
@@ -87,7 +95,7 @@ def list_tasks():
 
     status = request.args.get("status")
     workflow_name = request.args.get("workflow_name")
-    limit = request.args.get("limit", 50, type=int)
+    limit = min(request.args.get("limit", 50, type=int), 200)
 
     conditions = []
     params_list = []

@@ -160,7 +160,7 @@ class WorkflowScheduler:
             try:
                 self._on_update(task_id, workflow_name, "done", result, None)
             except Exception:
-                pass
+                logger.debug(f"WebSocket push 失败 (done) task_id={task_id}", exc_info=True)
 
     def _mark_failed(self, task_id: int, workflow_name: str, error: str) -> None:
         """标记任务失败。"""
@@ -174,4 +174,4 @@ class WorkflowScheduler:
             try:
                 self._on_update(task_id, workflow_name, "failed", None, error)
             except Exception:
-                pass
+                logger.debug(f"WebSocket push 失败 (failed) task_id={task_id}", exc_info=True)

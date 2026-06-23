@@ -684,6 +684,8 @@ class Storage:
         :param params: 传递给 execute 的参数 dict
         :return: workflow_queue.id
         """
+        if params is not None and not isinstance(params, dict):
+            raise TypeError(f"params must be a dict, got {type(params).__name__}")
         params_json = json.dumps(params or {}, ensure_ascii=False)
         with self._lock:
             cur = self._conn.execute(
