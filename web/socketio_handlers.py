@@ -38,3 +38,26 @@ def push_task_update(socketio: SocketIO, queue_id: int, old_status: str, new_sta
 
 def push_metrics_update(socketio: SocketIO, metrics: dict) -> None:
     socketio.emit('metrics_update', metrics)
+
+
+def push_workflow_task_update(
+    socketio: SocketIO,
+    task_id: int,
+    workflow_name: str,
+    status: str,
+    result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    """推送工作流任务状态变更。"""
+    from datetime import datetime, timezone
+    payload = {
+        "task_id": task_id,
+        "workflow_name": workflow_name,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if result is not None:
+        payload["result"] = result
+    if error is not None:
+        payload["error"] = error
+    socketio.emit("workflow_task_update", payload)

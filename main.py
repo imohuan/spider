@@ -155,6 +155,18 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
     registry.discover()
     registry.ensure_all_tables()
 
+    # ── 工作流系统 ──
+    from core.workflow_registry import WorkflowRegistry
+    from core.workflow_scheduler import WorkflowScheduler
+
+    workflow_registry = WorkflowRegistry()
+    workflow_registry.discover()
+
+    workflow_scheduler = WorkflowScheduler(
+        storage=storage,
+        registry=workflow_registry,
+    )
+
     # 请求池
     request_pool = RequestPool(
         storage=storage,
@@ -189,6 +201,8 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
         "registry": registry,
         "request_pool": request_pool,
         "scheduler": scheduler,
+        "workflow_registry": workflow_registry,
+        "workflow_scheduler": workflow_scheduler,
     }
 
 
@@ -231,6 +245,17 @@ def main(argv: list[str] | None = None) -> int:
         web_app.config['CRAWLER_COMPONENTS'] = components
         from web.api.crawler_control import init_scheduler
         init_scheduler(scheduler)
+
+        # 启动工作流调度器并挂 WebSocket 推送
+        from web.socketio_handlers import push_workflow_task_update
+        from web.app import socketio as ws_socketio
+
+        workflow_scheduler.set_on_update(
+            lambda tid, name, status, result, error: push_workflow_task_update(
+                ws_socketio, tid, name, status, result, error
+            )
+        )
+        workflow_scheduler.start()
 
         server_thread = start_web_server_in_thread(
             web_app, host=args.web_host, port=args.web_port, logger=logger,

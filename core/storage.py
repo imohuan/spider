@@ -177,6 +177,20 @@ CREATE TABLE IF NOT EXISTS cookie_presets (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cookie_presets_domain ON cookie_presets(domain);
+
+CREATE TABLE IF NOT EXISTS workflow_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_name   TEXT NOT NULL,
+    params          TEXT,
+    status          TEXT DEFAULT 'pending',
+    result          TEXT,
+    error           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at      TIMESTAMP,
+    finished_at     TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_status ON workflow_queue(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_name ON workflow_queue(workflow_name);
 """
 
 

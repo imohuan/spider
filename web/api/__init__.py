@@ -13,6 +13,7 @@ def register_blueprints(app: Flask) -> None:
     from web.api.logs import bp as logs_bp
     from web.api.crawler_control import bp as crawler_bp
     from web.api.images import bp as images_bp
+    from web.api.workflows import bp as workflows_bp
 
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(queue_bp, url_prefix='/api/queue')
@@ -24,6 +25,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(crawler_bp, url_prefix='/api/crawler')
     app.register_blueprint(images_bp, url_prefix='/api/images')
+    app.register_blueprint(workflows_bp, url_prefix='/api/workflows')
 
     from web.api.cookie_presets import bp as cookie_presets_bp
     app.register_blueprint(cookie_presets_bp, url_prefix='/api/cookie-presets')

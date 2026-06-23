@@ -60,9 +60,9 @@ def _list_indexes(storage: Storage) -> list[str]:
 # ---------------- 建表 ----------------
 
 def test_creates_all_system_tables(storage):
-    """9 张系统表必须全部建出。"""
+    """10 张系统表必须全部建出。"""
     tables = set(_list_tables(storage))
-    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue", "templates", "cookie_presets"}
+    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue", "templates", "cookie_presets", "workflow_queue"}
     missing = expected - tables
     assert not missing, f"缺少系统表: {missing}"
     # 不应有额外的表
