@@ -42,10 +42,6 @@ const currentPois = ref<any[]>([])
 const activeIdx = ref(-1)
 const searching = ref(false)
 
-// ── 截图 ──
-const screenshotUrl = ref('')
-const showScreenshot = ref(false)
-
 // ── 详情 ──
 const showDetail = ref(false)
 const detailPoi = ref<any>(null)
@@ -316,82 +312,9 @@ function doLocate() {
   })
 }
 
-// ── 截图 ──
-let lastDataUrl: string | null = null
-
-async function doScreenshot() {
-  showToast('正在截图…')
-  try {
-    const mapEl = document.getElementById('amap-container')
-    const appEl = document.getElementById('amap-app')
-    if (!mapEl || !appEl) return
-
-    const mapCanvas = mapEl.querySelector('canvas')
-    let mapDataUrl: string | null = null
-    if (mapCanvas) {
-      try {
-        mapDataUrl = mapCanvas.toDataURL('image/png')
-      } catch {
-        const w = mapCanvas.width, h = mapCanvas.height
-        const t = document.createElement('canvas')
-        t.width = w; t.height = h
-        t.getContext('2d')!.drawImage(mapCanvas, 0, 0)
-        mapDataUrl = t.toDataURL('image/png')
-      }
-    }
-
-    const html2canvas = (window as any).html2canvas
-    if (!html2canvas) { showToast('截图库未加载'); return }
-
-    const overlayCanvas = await html2canvas(appEl, {
-      allowTaint: true, useCORS: true,
-      backgroundColor: '#ffffff',
-      scale: Math.min(window.devicePixelRatio || 1, 2),
-      logging: false,
-    })
-
-    const w = overlayCanvas.width, h = overlayCanvas.height
-    const final = document.createElement('canvas')
-    final.width = w; final.height = h
-    const ctx = final.getContext('2d')!
-
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, w, h)
-
-    if (mapDataUrl) {
-      const img = new Image()
-      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(); img.src = mapDataUrl! })
-      const r = mapEl.getBoundingClientRect()
-      const ar = appEl.getBoundingClientRect()
-      ctx.drawImage(img,
-        (r.x - ar.x) * (w / ar.width), (r.y - ar.y) * (h / ar.height),
-        r.width * (w / ar.width), r.height * (h / ar.height))
-    }
-    ctx.drawImage(overlayCanvas, 0, 0)
-
-    lastDataUrl = final.toDataURL('image/png')
-    screenshotUrl.value = lastDataUrl
-    showScreenshot.value = true
-    showToast('截图完成')
-  } catch (err) {
-    console.error(err)
-    showToast('截图失败，请重试')
-  }
-}
-
-function downloadScreenshot() {
-  if (!lastDataUrl) return
-  const a = document.createElement('a')
-  a.download = 'amap-' + Date.now() + '.png'
-  a.href = lastDataUrl
-  a.click()
-  showToast('截图已下载')
-}
-
 // ── 键盘快捷键 ──
 function onKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doScreenshot() }
-  if (e.key === 'Escape') { closeDetail(); showScreenshot.value = false }
+  if (e.key === 'Escape') { closeDetail() }
 }
 
 // ── 初始化 ──
@@ -403,16 +326,6 @@ onMounted(async () => {
   }
 
   try {
-    if (!(window as any).html2canvas) {
-      await new Promise<void>((resolve, reject) => {
-        const s = document.createElement('script')
-        s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
-        s.onload = () => resolve()
-        s.onerror = () => reject(new Error('html2canvas 加载失败'))
-        document.head.appendChild(s)
-      })
-    }
-
     await loadAMapScript()
     initMap()
     loading.value = false
@@ -454,7 +367,6 @@ defineExpose({ search: doSearch, openDetail })
         <div class="flex gap-ax-sm">
           <AxButton variant="primary" size="lg" @click="doSearch" :loading="searching" style="flex:1">搜索</AxButton>
           <AxButton variant="outline" size="lg" @click="doLocate" style="flex:1"><span class="material-symbols-outlined text-sm">my_location</span> 定位</AxButton>
-          <AxButton variant="outline" size="lg" @click="doScreenshot" style="flex:1"><span class="material-symbols-outlined text-sm">camera</span> 截图</AxButton>
         </div>
       </div>
 
@@ -584,23 +496,6 @@ defineExpose({ search: doSearch, openDetail })
         </div>
       </div>
     </div>
-
-    <!-- ── 截图预览 ── -->
-    <Teleport to="body">
-      <div
-        v-if="showScreenshot"
-        class="fixed inset-0 z-[5000] bg-black/75 flex items-center justify-center flex-col gap-4"
-        @click.self="showScreenshot = false"
-      >
-        <img :src="screenshotUrl" class="max-w-[94vw] max-h-[80vh] rounded-lg shadow-[0_8px_40px_rgba(0,0,0,0.3)]" />
-        <div class="flex gap-ax-sm mt-ax-sm">
-          <AxButton variant="outline" size="lg" @click="downloadScreenshot" style="background:#fff;color:#1f2937;border:1px solid #e5e7eb">
-            <span class="material-symbols-outlined text-sm">download</span> 下载 PNG
-          </AxButton>
-          <AxButton variant="outline" size="lg" @click="showScreenshot = false" style="background:#fff;color:#1f2937;border:1px solid #e5e7eb">关闭</AxButton>
-        </div>
-      </div>
-    </Teleport>
 
     <!-- ── Toast ── -->
     <Teleport to="body">
