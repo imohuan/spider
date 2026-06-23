@@ -16,7 +16,7 @@ from core.logger import get_logger
 logger = get_logger("workflow.58-ai-check")
 
 
-async def execute(params: dict) -> dict:
+async def execute(params: dict, storage=None, ref_id=None) -> dict:
     """工作流入口函数。
 
     :param params: 调用方传入的参数字典（前端表单 / Parser 代码）
