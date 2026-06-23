@@ -77,18 +77,20 @@ onMounted(async () => {
     </div>
 
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
-      <table v-if="selectedTable && rows.length" class="w-full text-xs">
-        <thead class="bg-surface-container-low text-secondary text-[11px]">
-          <tr>
-            <th v-for="c in columns" :key="c" class="text-left px-4 py-2 font-medium truncate">{{ c }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-outline-variant">
-          <tr v-for="(r, i) in rows" :key="i" class="hover:bg-surface-container-low">
-            <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]" v-html="linkify(r[c])" />
-          </tr>
-        </tbody>
-      </table>
+      <div v-if="selectedTable && rows.length" class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead class="bg-surface-container-low text-secondary text-[11px]">
+            <tr>
+              <th v-for="c in columns" :key="c" class="text-left px-4 py-2 font-medium truncate">{{ c }}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-outline-variant">
+            <tr v-for="(r, i) in rows" :key="i" class="hover:bg-surface-container-low">
+              <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]" v-html="linkify(r[c])" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-else class="p-ax-lg text-center text-secondary text-sm">
         {{ selectedTable ? '表为空' : '请选择业务表' }}
       </div>

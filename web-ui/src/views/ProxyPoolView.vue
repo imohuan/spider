@@ -17,7 +17,7 @@ const fetchAll = async () => {
   } catch {}
 }
 
-const doFetch = async () => { try { await proxyApi.fetch(); triggerNotify('正在拉取 IP...', 'info'); setTimeout(fetchAll, 3000) } catch {} }
+const doFetch = async () => { try { await proxyApi.fetch(); triggerNotify('正在获取 1 个 IP...', 'info'); setTimeout(fetchAll, 3000) } catch {} }
 const doKill = async (id: number) => { try { await proxyApi.kill(id); triggerNotify('已淘汰', 'success'); fetchAll() } catch {} }
 const doHealthCheck = async () => { try { await proxyApi.healthCheck(); triggerNotify('健康检查已触发', 'info') } catch {} }
 
@@ -53,11 +53,12 @@ onMounted(fetchAll)
     </div>
 
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-ax-sm flex items-center gap-ax-sm">
-      <AxButton variant="primary"  size="lg" icon="add" @click="doFetch">手动拉取 10 个 IP</AxButton>
+      <AxButton variant="primary"  size="lg" icon="add" @click="doFetch">手动获取 1 个 IP</AxButton>
       <AxButton variant="outline"  size="lg" icon="monitor_heart" @click="doHealthCheck">立即健康检查</AxButton>
     </div>
 
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
       <table class="w-full text-xs">
         <thead class="bg-surface-container-low text-secondary text-[11px]">
           <tr>
@@ -84,6 +85,7 @@ onMounted(fetchAll)
           </tr>
         </tbody>
       </table>
+      </div>
       <div class="px-4 py-ax-sm border-t border-outline-variant">
         <AxPagination
           :page="page"

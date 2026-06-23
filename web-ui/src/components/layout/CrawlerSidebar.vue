@@ -14,6 +14,7 @@ const groups = [
   {
     section: '数据',
     items: [
+      { id: 'preview', name: '预览UI', icon: 'grid_view', path: '/preview' },
       { id: 'data', name: '数据浏览', icon: 'table_chart', path: '/data' },
       { id: 'proxy', name: 'IP 池', icon: 'vpn_lock', path: '/proxy' },
     ],

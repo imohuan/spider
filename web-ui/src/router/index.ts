@@ -4,6 +4,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardView.vue'), meta: { title: 'Dashboard', desc: '总览 · 实时指标和任务流水' } },
   { path: '/queue', name: 'queue', component: () => import('@/views/QueueView.vue'), meta: { title: '任务队列', desc: 'queue 表 · 状态机驱动的 URL 队列' } },
+  { path: '/preview', name: 'preview', component: () => import('@/views/PreviewUIView.vue'), meta: { title: '预览UI', desc: 'AI 生成 · 数据模板预览' } },
   { path: '/data', name: 'data', component: () => import('@/views/DataBrowserView.vue'), meta: { title: '数据浏览', desc: 'Parser 业务表 · 查询/导出' } },
   { path: '/proxy', name: 'proxy', component: () => import('@/views/ProxyPoolView.vue'), meta: { title: 'IP 池', desc: 'proxy_pool 表 · 代理 IP 生命周期' } },
   { path: '/captcha', name: 'captcha', component: () => import('@/views/CaptchaLogView.vue'), meta: { title: '验证码日志', desc: 'captcha_log 表 · 接码记录' } },

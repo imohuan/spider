@@ -45,6 +45,7 @@ onMounted(fetchAll)
     </div>
 
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
       <table class="w-full text-xs">
         <thead class="bg-surface-container-low text-secondary text-[11px]">
           <tr>
@@ -67,6 +68,7 @@ onMounted(fetchAll)
           </tr>
         </tbody>
       </table>
+      </div>
       <div class="px-4 py-ax-sm border-t border-outline-variant flex justify-between text-[11px] text-secondary">
         <span>{{ total }} 条</span>
         <div class="flex gap-ax-sm">

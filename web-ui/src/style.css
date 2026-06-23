@@ -99,6 +99,27 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
+/* ── 全局滚动条样式：无背景、仅滑块、无圆角 ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }

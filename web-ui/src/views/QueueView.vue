@@ -191,6 +191,7 @@ onUnmounted(() => { stopAutoRefresh() })
     <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden relative">
       <!-- 无感刷新指示器 -->
       <div v-if="refreshing" class="refresh-bar" />
+      <div class="overflow-x-auto">
       <table class="w-full text-xs">
         <thead class="bg-surface-container-low text-secondary text-[11px]">
           <tr>
@@ -219,6 +220,7 @@ onUnmounted(() => { stopAutoRefresh() })
           </tr>
         </tbody>
       </table>
+      </div>
       <!-- 分页 -->
       <div class="px-4 py-ax-sm border-t border-outline-variant">
         <AxPagination
