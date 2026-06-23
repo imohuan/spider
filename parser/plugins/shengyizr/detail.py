@@ -234,7 +234,8 @@ class ShengyiZRDetailParser(SimplePageParser):
         self.storage.enqueue_workflow("example", {
             "table": self.table_name,
             "url": url,
-        }, ref_id=row['info_id'])
+            "row": row,
+        }, ref_id=getattr(self, '_queue_id', None))
 
         return [row]
 

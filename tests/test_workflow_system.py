@@ -156,11 +156,11 @@ class TestWorkflowRegistry:
 
 class TestWorkflowScheduler:
     @staticmethod
-    async def _dummy_execute(params):
+    async def _dummy_execute(params, storage=None, ref_id=None):
         return {"received": params, "ok": True}
 
     @staticmethod
-    async def _failing_execute(params):
+    async def _failing_execute(params, storage=None, ref_id=None):
         raise RuntimeError("forced failure")
 
     def test_execute_one_task_success(self):
@@ -313,7 +313,7 @@ def app_with_workflows():
     from core.workflow_registry import WorkflowRegistry
     registry = WorkflowRegistry()
 
-    async def mock_execute(params):
+    async def mock_execute(params, storage=None, ref_id=None):
         return {"received": params, "status": "ok"}
     registry.register("test_wf", mock_execute)
 

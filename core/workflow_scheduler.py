@@ -97,7 +97,7 @@ class WorkflowScheduler:
         """从队列取一个 pending 任务并执行。无待处理任务时直接返回。"""
         with self.storage.get_connection() as conn:
             row = conn.execute(
-                "SELECT id, workflow_name, params FROM workflow_queue "
+                "SELECT id, workflow_name, ref_id, params FROM workflow_queue "
                 "WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
             ).fetchone()
 
@@ -106,7 +106,8 @@ class WorkflowScheduler:
 
             task_id = row[0]
             workflow_name = row[1]
-            params_raw = row[2]
+            ref_id = row[2]
+            params_raw = row[3]
 
             now = _now_iso()
             conn.execute(
@@ -126,16 +127,16 @@ class WorkflowScheduler:
             self._mark_failed(task_id, workflow_name, f"workflow '{workflow_name}' not found in registry")
             return
 
-        # 执行
+        # 执行 — 传入 params + storage + ref_id
         try:
             if asyncio.iscoroutinefunction(func):
                 loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(func(params))
+                    result = loop.run_until_complete(func(params, storage=self.storage, ref_id=ref_id))
                 finally:
                     loop.close()
             else:
-                result = func(params)
+                result = func(params, storage=self.storage, ref_id=ref_id)
 
             self._mark_done(task_id, workflow_name, result)
             logger.info(f"工作流 {workflow_name} (task_id={task_id}) 完成")
