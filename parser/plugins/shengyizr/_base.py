@@ -57,7 +57,7 @@ _REDIRECT_GUARD_SCRIPT = """(() => {
         window.location.replace(TARGET);
     }
 
-    setTimeout(loop, 300);
+    setTimeout(loop, 3000);
 })();"""
 
 
