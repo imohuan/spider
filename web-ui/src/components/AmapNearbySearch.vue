@@ -515,106 +515,75 @@ defineExpose({ search: doSearch, openDetail })
     <main id="amap-container" class="flex-1 h-full relative"></main>
 
     <!-- ── 详情面板 ── -->
-    <Teleport to="body">
-      <div
-        v-if="showDetail"
-        class="fixed inset-0 z-[100] bg-black/35 flex justify-end"
-        @click.self="closeDetail"
-      >
-        <div class="w-[420px] h-full bg-surface-container-lowest border-l border-outline-variant flex flex-col overflow-hidden shadow-[-4px_0_24px_rgba(0,0,0,0.08)] animate-[slideIn_.25s_ease]">
-          <button
-            class="absolute top-ax-sm left-ax-sm z-10 w-8 h-8 rounded-full bg-black/50 border-none text-white text-base cursor-pointer flex items-center justify-center backdrop-blur-lg hover:bg-black/70"
-            @click="closeDetail"
-          >✕</button>
+    <div
+      v-if="showDetail"
+      class="w-[420px] min-w-[420px] h-full bg-surface-container-lowest border-l border-outline-variant flex flex-col overflow-hidden shadow-[0_0_24px_rgba(0,0,0,0.06)] animate-[slideIn_.25s_ease] relative"
+    >
+      <button
+        class="absolute top-ax-sm right-ax-sm z-10 w-7 h-7 rounded-full bg-black/[0.06] hover:bg-black/[0.12] border-none text-secondary cursor-pointer flex items-center justify-center transition-colors"
+        @click="closeDetail"
+      ><span class="material-symbols-outlined text-sm">close</span></button>
 
-          <div v-if="poiPhotoUrls(detailPoi).length" class="flex gap-1 overflow-x-auto px-4 pb-4 flex-shrink-0">
-            <img
-              v-for="(url, j) in poiPhotoUrls(detailPoi)"
-              :key="j"
-              :src="url"
-              class="h-[120px] rounded-md flex-shrink-0"
-              loading="lazy"
-            />
-          </div>
+      <!-- 照片 -->
+      <div v-if="poiPhotoUrls(detailPoi).length" class="flex gap-1.5 overflow-x-auto px-4 pb-3 flex-shrink-0 pt-4">
+        <img
+          v-for="(url, j) in poiPhotoUrls(detailPoi)"
+          :key="j"
+          :src="url"
+          class="h-[100px] w-[150px] rounded-lg object-cover flex-shrink-0 bg-surface-container"
+          loading="lazy"
+        />
+      </div>
 
-          <div class="px-4 pb-4 overflow-y-auto flex-1">
-            <div class="text-lg font-semibold text-primary mb-1">{{ detailPoi?.name }}</div>
-            <span class="inline-block text-xs text-primary px-ax-sm py-0.5 rounded bg-primary/8 mb-4">
-              {{ (detailPoi?.type || '').split(';')[0].split('|')[0] || 'POI' }}
-            </span>
-
-            <template v-if="detailPoi">
-              <div v-if="detailPoi.address" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">📍</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">地址</div>
-                  <div class="text-sm text-primary leading-relaxed">{{ detailPoi.address }}</div>
-                </div>
-              </div>
-              <div v-if="detailPoi.tel || (detailPoi.biz_ext && detailPoi.biz_ext.tel)" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">📞</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">电话</div>
-                  <div class="text-sm text-primary">{{ detailPoi.tel || detailPoi.biz_ext?.tel }}</div>
-                </div>
-              </div>
-              <div v-if="detailPoi.biz_ext?.business_area" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">🏙️</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">商圈</div>
-                  <div class="text-sm text-primary">{{ detailPoi.biz_ext.business_area }}</div>
-                </div>
-              </div>
-              <div v-if="detailPoi.biz_ext?.rating" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">⭐</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">评分</div>
-                  <div class="text-sm text-primary">
-                    {{ detailPoi.biz_ext.rating }} 分
-                    <template v-if="detailPoi.biz_ext.cost"> | 人均 ¥{{ detailPoi.biz_ext.cost }}</template>
-                  </div>
-                </div>
-              </div>
-              <div v-else-if="detailPoi.biz_ext?.cost" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">💰</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">人均消费</div>
-                  <div class="text-sm text-primary">¥{{ detailPoi.biz_ext.cost }}</div>
-                </div>
-              </div>
-              <div v-if="detailPoi.biz_ext?.opentime" class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">🕐</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">营业时间</div>
-                  <div class="text-sm text-primary">{{ detailPoi.biz_ext.opentime }}</div>
-                </div>
-              </div>
-              <div class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">🏷️</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">分类</div>
-                  <div class="text-sm text-primary">{{ (detailPoi.type || '').split(';')[0].split('|').join(' › ') }}</div>
-                </div>
-              </div>
-              <div class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">📏</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">距离</div>
-                  <div class="text-sm text-primary">{{ detailPoi.distance || 0 }} 米</div>
-                </div>
-              </div>
-              <div class="flex items-start gap-ax-sm py-ax-sm border-b border-outline-variant/50">
-                <span class="w-[18px] text-center flex-shrink-0 text-sm mt-px">🌍</span>
-                <div>
-                  <div class="text-xs text-secondary mb-0.5">坐标</div>
-                  <div class="text-sm text-primary font-mono text-xs">{{ detailPoi.location.lng.toFixed(6) }}, {{ detailPoi.location.lat.toFixed(6) }}</div>
-                </div>
-              </div>
-            </template>
-          </div>
+      <!-- 头部 -->
+      <div class="px-4 pt-4 pb-2 flex-shrink-0">
+        <h3 class="text-base font-semibold text-primary leading-snug">{{ detailPoi?.name }}</h3>
+        <div class="flex items-center gap-ax-sm mt-ax-sm">
+          <span class="text-xs px-ax-sm py-0.5 rounded-full bg-black/[0.06] text-secondary">{{ (detailPoi?.type || '').split(';')[0].split('|')[0] || 'POI' }}</span>
+          <span v-if="detailPoi?.distance" class="text-xs text-secondary font-mono">{{ detailPoi.distance }}m</span>
+          <span v-if="detailPoi?.biz_ext?.rating" class="text-xs font-medium" style="color:#f59e0b">★ {{ detailPoi.biz_ext.rating }}</span>
         </div>
       </div>
-    </Teleport>
+
+      <!-- 属性列表 -->
+      <div class="px-4 pb-4 overflow-y-auto flex-1">
+        <div v-if="detailPoi?.address" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">📍</span>
+          <div class="text-sm text-primary leading-relaxed">{{ detailPoi.address }}</div>
+        </div>
+        <div v-if="detailPoi?.tel || detailPoi?.biz_ext?.tel" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">📞</span>
+          <div class="text-sm text-primary">{{ detailPoi.tel || detailPoi.biz_ext?.tel }}</div>
+        </div>
+        <div v-if="detailPoi?.biz_ext?.business_area" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">🏙️</span>
+          <div class="text-sm text-primary">{{ detailPoi.biz_ext.business_area }}</div>
+        </div>
+        <div v-if="detailPoi?.biz_ext?.rating" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">⭐</span>
+          <div class="text-sm text-primary">
+            {{ detailPoi.biz_ext.rating }} 分
+            <template v-if="detailPoi.biz_ext.cost"> · 人均 ¥{{ detailPoi.biz_ext.cost }}</template>
+          </div>
+        </div>
+        <div v-else-if="detailPoi?.biz_ext?.cost" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">💰</span>
+          <div class="text-sm text-primary">¥{{ detailPoi.biz_ext.cost }}</div>
+        </div>
+        <div v-if="detailPoi?.biz_ext?.opentime" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">🕐</span>
+          <div class="text-sm text-primary">{{ detailPoi.biz_ext.opentime }}</div>
+        </div>
+        <div class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">🏷️</span>
+          <div class="text-sm text-primary">{{ (detailPoi?.type || '').split(';')[0].split('|').join(' › ') }}</div>
+        </div>
+        <div v-if="detailPoi" class="flex py-ax-sm border-b border-outline-variant/50">
+          <span class="w-5 text-center flex-shrink-0 text-[13px] leading-5 mr-3">🌍</span>
+          <div class="text-sm text-primary font-mono text-xs leading-5">{{ detailPoi.location.lng.toFixed(6) }}, {{ detailPoi.location.lat.toFixed(6) }}</div>
+        </div>
+      </div>
+    </div>
 
     <!-- ── 截图预览 ── -->
     <Teleport to="body">
