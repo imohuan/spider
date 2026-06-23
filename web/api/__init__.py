@@ -24,3 +24,6 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(crawler_bp, url_prefix='/api/crawler')
     app.register_blueprint(images_bp, url_prefix='/api/images')
+
+    from web.api.cookie_presets import bp as cookie_presets_bp
+    app.register_blueprint(cookie_presets_bp, url_prefix='/api/cookie-presets')
