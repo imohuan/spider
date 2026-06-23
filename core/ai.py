@@ -64,6 +64,52 @@ class AIClient:
         return missing
 
     # ------------------------------------------------------------------
+    # Vision chat completion（图片 + 文本多模态）
+    # ------------------------------------------------------------------
+
+    async def chat_completion_vision(
+        self,
+        *,
+        system_prompt: str,
+        user_text: str,
+        images_base64: list[str],
+        max_tokens: int = 4096,
+        temperature: float | None = None,
+        timeout: float = 120,
+    ) -> tuple[httpx.Response, int]:
+        """发送带图片的 vision chat completion 请求。
+
+        将 base64 图片和文本组合成 OpenAI vision API 格式的 messages，
+        内部复用 ``chat_completion()``。
+
+        :param system_prompt: 系统提示词
+        :param user_text: 用户文本问题
+        :param images_base64: base64 编码的图片数据 URI 列表
+                              格式: ``data:image/jpeg;base64,...``
+        :returns: ``(httpx.Response, duration_ms)``
+        """
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": user_text},
+        ]
+        for img in images_base64:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": img, "detail": "auto"},
+            })
+
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ]
+
+        return await self.chat_completion(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=timeout,
+        )
+
+    # ------------------------------------------------------------------
     # 核心请求
     # ------------------------------------------------------------------
 
