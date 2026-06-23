@@ -1,44 +1,16 @@
 from __future__ import annotations
-import hashlib
 import json
-import os
 import time
 import traceback
-from datetime import datetime
-from urllib.parse import urlparse
 
 from flask import Blueprint, jsonify, request
 
 from core.config_manager import ConfigManager
 from core.logger import get_logger
 from core.storage import Storage, _validate_identifier
-from config import RAW_RESPONSE_DIR, PROJECT_ROOT
 
 logger = get_logger("web.api.config")
 bp = Blueprint("config", __name__)
-
-
-def _save_test_raw_response_static(url: str, content: str) -> str:
-    """test-url fallback 路径的原始响应保存（不依赖 RequestPool）。"""
-    os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    try:
-        host = urlparse(url).hostname or "unknown"
-    except Exception:
-        host = "unknown"
-    url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()[:6]
-    filename = f"{host}_{url_hash}_{ts}.html"
-    filepath = os.path.join(RAW_RESPONSE_DIR, filename)
-    max_size = 5 * 1024 * 1024
-    if len(content) > max_size:
-        half = max_size // 2
-        content = content[:half] + "\n\n<!-- ... 响应过大，已截断 ... -->\n\n" + content[-half:]
-        logger.warning(f"test-url 原始响应过大，已截断至 5MB: {filepath}")
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(content)
-    rel = os.path.relpath(filepath, PROJECT_ROOT)
-    logger.info(f"[test-url] 原始响应已保存: {rel}")
-    return rel
 
 
 @bp.route("")
@@ -70,7 +42,7 @@ def reset_defaults():
 
 @bp.route("/test-url", methods=["POST"])
 def test_url():
-    """测试 URL — 走完整 Parser pipeline，返回 parse() 的结构化结果。
+    """测试 URL — 委托 RequestPool.debug_parse() 走完整 Parser pipeline。
 
     Request body::
 
@@ -86,19 +58,17 @@ def test_url():
             "ok": true,
             "parser": "ShengyiZRDetailParser",
             "fetch_mode": "browser",
-            "url_matched": true,
             "duration_ms": 2345,
             "fetch_duration_ms": 2100,
             "parse_duration_ms": 45,
             "data": [{"title": "...", "price_num": "...", ...}],
             "data_count": 1,
-            "raw_preview": "<html>..."
+            "raw_preview": "<html>...",
+            "raw_path": "data/raw_responses/xxx.html"
         }
     """
     import asyncio
     from flask import current_app
-
-    from core.fake_storage import FakeStorage
 
     data = request.get_json()
     if not data or not data.get("url"):
@@ -109,157 +79,30 @@ def test_url():
     show_window = bool(data.get("show_window", False))
 
     components = current_app.config.get("CRAWLER_COMPONENTS", {})
+    request_pool = components.get("request_pool")
     registry = components.get("registry")
+
+    if not request_pool:
+        return jsonify({"ok": False, "error": "RequestPool 未初始化"}), 503
     if not registry:
         return jsonify({"ok": False, "error": "Registry 未初始化"}), 503
 
-    # ── 1. 匹配 Parser ──
-    if parser_name:
-        # 强制指定 Parser — 遍历 classes 找到同名类，然后 match 获取实例
-        parser = None
-        matched_cls = None
-        for cls in registry.classes:
-            if cls.__name__ == parser_name:
-                matched_cls = cls
-                break
-        if not matched_cls:
-            return jsonify({
-                "ok": False,
-                "error": f"Parser '{parser_name}' 不存在",
-            }), 404
-
-        # 获取/创建实例并验证 URL 匹配
-        parser = registry.match(url)
-        if parser is None or parser.__class__.__name__ != parser_name:
-            # URL 不匹配目标 parser — 尝试直接创建目标 parser 实例只做 URL 验证
-            instance = matched_cls(registry.tools)
-            if not instance.matches(url):
-                return jsonify({
-                    "ok": False,
-                    "error": f"URL 不匹配 Parser '{parser_name}' 的 pattern ({matched_cls.url_pattern})",
-                }), 400
-            parser = instance
-    else:
-        # 自动匹配
-        parser = registry.match(url)
-        if not parser:
-            return jsonify({
-                "ok": False,
-                "error": "未找到匹配该 URL 的 Parser",
-            }), 404
-
-    # ── 2. 确定 fetch_mode ──
-    config_mgr = components.get("config")
-    requires_browser = getattr(parser, "requires_browser", False)
-    if requires_browser:
-        fetch_mode = "browser"
-    else:
-        fetch_mode = config_mgr.get("fetch_mode", "browser") if config_mgr else "browser"
-
-    logger.info(
-        f"POST /api/config/test-url parser={parser.__class__.__name__} "
-        f"requires_browser={requires_browser} fetch_mode={fetch_mode} "
-        f"show_window={show_window} url={url[:80]}"
-    )
-
-    # ── 3. 注入 FakeStorage，防止副作用 ──
-    real_storage = components.get("storage")
-    fake_storage = FakeStorage(real_storage) if real_storage else None
-    parser.storage = fake_storage
-
-    # ── 4. Fetch HTML + Parse ──
-    request_pool = components.get("request_pool")
-
     async def _do() -> dict:
-        t0 = time.perf_counter()
-        raw_path = ""
-        logger.info(f"[test-url] 开始抓取 url={url[:60]} fetch_mode={fetch_mode}")
-
-        # Fetch
-        if request_pool is not None:
-            logger.info(f"[test-url] → fetch_raw_html 调用中...")
-            fetch_result = await request_pool.fetch_raw_html(url, parser, fetch_mode, show_window=show_window)
-            logger.info(f"[test-url] ← fetch_raw_html 完成 duration={fetch_result.get('duration_ms')}ms html_len={len(fetch_result.get('html',''))}")
-            html = fetch_result["html"]
-            fetch_duration_ms = fetch_result.get("duration_ms", 0)
-            raw_path = fetch_result.get("raw_path", "")
-        elif fetch_mode == "browser":
-            # 降级：直接用 browser 裸抓
-            browser = components.get("browser")
-            if not browser or not getattr(browser, "_browser", None):
-                raise RuntimeError("浏览器未启动")
-            page = await browser.new_page(url=None)
-            try:
-                t_fetch = time.perf_counter()
-                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-                html = await page.content()
-                fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
-                # 保存原始响应
-                if html:
-                    raw_path = _save_test_raw_response_static(url, html)
-            finally:
-                await browser.close_page(page)
-        else:
-            # HTTP 降级
-            import httpx as _httpx
-            async with _httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-                t_fetch = time.perf_counter()
-                resp = await client.get(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-                })
-                html = resp.text
-                fetch_duration_ms = int((time.perf_counter() - t_fetch) * 1000)
-                # 保存原始响应
-                if html:
-                    raw_path = _save_test_raw_response_static(url, html)
-
-        if not html:
-            raise RuntimeError("获取到空 HTML")
-
-        # Parse
-        logger.info(f"[test-url] 开始解析 parser={parser.__class__.__name__}")
-        t_parse = time.perf_counter()
-        try:
-            data_result = parser.parse(html, url)
-        except Exception as e:
-            logger.error(f"Parser {parser.__class__.__name__} parse 失败: {e}", exc_info=True)
-            return {
-                "ok": False,
-                "error": f"Parse 失败: {e}",
-                "error_type": type(e).__name__,
-                "parser": parser.__class__.__name__,
-                "raw_preview": html[:5000] if html else "",
-                "raw_path": raw_path,
-            }
-
-        parse_duration_ms = int((time.perf_counter() - t_parse) * 1000)
-        total_duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        return {
-            "ok": True,
-            "parser": parser.__class__.__name__,
-            "fetch_mode": fetch_mode,
-            "url_matched": True,
-            "duration_ms": total_duration_ms,
-            "fetch_duration_ms": fetch_duration_ms,
-            "parse_duration_ms": parse_duration_ms,
-            "data": data_result if isinstance(data_result, list) else [],
-            "data_count": len(data_result) if isinstance(data_result, list) else 0,
-            "raw_preview": html[:5000] if html else "",
-            "raw_path": raw_path,      # 原始响应保存路径，如 data/raw_responses/xxx.html
-        }
+        return await request_pool.debug_parse(url, registry, parser_name, show_window)
 
     try:
-        # 使用持久事件循环（避免 asyncio.Lock 跨循环死锁）
         event_loop_obj = components.get("event_loop")
         if event_loop_obj and not event_loop_obj.is_closed():
             result = event_loop_obj.run_until_complete(_do())
         else:
             result = asyncio.run(_do())
-        if isinstance(result, tuple):
-            return result
         is_ok = result.get("ok", False)
-        status = 200 if is_ok else (500 if "parse" in str(result.get("error", "")).lower() else 400)
+        if is_ok:
+            status = 200
+        elif str(result.get("error", "")).startswith("Parse 失败"):
+            status = 500
+        else:
+            status = 400
         return jsonify(result), status
     except Exception as e:
         logger.error(f"test-url 失败: {e}", exc_info=True)

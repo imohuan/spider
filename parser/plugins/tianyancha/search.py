@@ -97,7 +97,7 @@ class TianyanchaSearchParser(BaseParser):
     """
 
     url_pattern = r"tianyancha\.com/nsearch"
-    preferred_fetch_mode = "http"
+    preferred_fetch_mode = "browser"
     requires_browser = False
 
     table_name = "tianyancha_search"
