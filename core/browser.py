@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any
 
 from core.config_manager import ConfigManager
@@ -34,6 +35,22 @@ logger = get_logger("browser")
 
 # 每 N 个 URL 重启一次浏览器进程，避免内存泄漏
 RESTART_INTERVAL = 100
+
+
+def _kill_process(pid: int) -> None:
+    """跨平台强制终止进程（线程安全）。"""
+    if sys.platform == "win32":
+        import subprocess
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(pid)],
+            capture_output=True, timeout=10,
+        )
+    else:
+        import signal, os
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 class CrawlerBrowser:
@@ -75,6 +92,7 @@ class CrawlerBrowser:
         self.channel = channel  # None = Playwright 自带 Chromium, "chrome" = 系统 Chrome
         self._playwright: Any = None
         self._browser: Any = None
+        self._browser_pid: int | None = None  # 浏览器进程 PID，供 force_close 跨线程杀进程
         self._stealth: Any = None  # playwright_stealth.Stealth 实例
         self._request_count = 0
         self._interceptor = Interceptor(config)
@@ -106,9 +124,15 @@ class CrawlerBrowser:
             launch_kwargs["channel"] = self.channel
 
         self._browser = await engine.launch(**launch_kwargs)
+        # 记录浏览器进程 PID，供跨线程强制关闭用
+        try:
+            self._browser_pid = self._browser._impl_obj._process.pid
+        except Exception:
+            self._browser_pid = None
         browser_name = self.channel or "Playwright Chromium"
         logger.info(
             f"浏览器已启动: {browser_name} headless={self.headless} stealth=on"
+            f"{f' pid={self._browser_pid}' if self._browser_pid else ''}"
         )
 
     async def close(self) -> None:
@@ -119,7 +143,31 @@ class CrawlerBrowser:
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
+        self._browser_pid = None
         logger.info("浏览器已关闭")
+
+    def close_sync(self) -> None:
+        """同步强制关闭浏览器（线程安全）。
+
+        供 Web API stop 端点从后台线程调用。
+        先用 OS 级 kill 杀浏览器进程，再标记内部状态为已关闭，
+        确保即使用户操作与爬虫主循环跨线程也能立即释放资源。
+
+        异步 close() 只能在创建它的 event_loop 上运行，
+        Flask 请求线程无法调用，因此需要此同步版本。
+        """
+        if self._browser is None and self._playwright is None:
+            return
+
+        pid = self._browser_pid
+        if pid is not None:
+            _kill_process(pid)
+            logger.info(f"浏览器进程已强制终止 pid={pid}")
+
+        # 标记为已关闭，防止异步 close() 重复操作
+        self._browser = None
+        self._playwright = None
+        self._browser_pid = None
 
     async def restart(self) -> None:
         """重启浏览器进程（每 RESTART_INTERVAL 个 URL 调用一次）。"""

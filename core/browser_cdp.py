@@ -24,6 +24,7 @@ from typing import Any
 from core.config_manager import ConfigManager
 from core.logger import get_logger
 from core.interceptor import Interceptor
+from core.browser import _kill_process
 
 logger = get_logger("browser.cdp")
 
@@ -51,6 +52,7 @@ class CrawlerBrowserCDP:
         self.endpoint = endpoint or config.get("cdp_endpoint", "http://localhost:9222")
         self._playwright: Any = None
         self._browser: Any = None
+        self._browser_pid: int | None = None  # 浏览器进程 PID，供 close_sync 跨线程杀进程
         self._interceptor = Interceptor(config)
         self._request_count = 0
         self._lock = asyncio.Lock()
@@ -68,17 +70,44 @@ class CrawlerBrowserCDP:
         self._browser = await self._playwright.chromium.connect_over_cdp(
             self.endpoint
         )
-        logger.info(f"CDP 已连接: {self.endpoint}")
+        # 记录浏览器进程 PID，供跨线程强制关闭用
+        try:
+            self._browser_pid = self._browser._impl_obj._process.pid
+        except Exception:
+            self._browser_pid = None
+        logger.info(
+            f"CDP 已连接: {self.endpoint}"
+            f"{f' pid={self._browser_pid}' if self._browser_pid else ''}"
+        )
 
     async def disconnect(self) -> None:
-        """断开 CDP 连接（不关闭 Chrome 进程）。"""
+        """断开 CDP 并关闭浏览器进程。"""
         if self._browser is not None:
             await self._browser.close()
             self._browser = None
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
-        logger.info("CDP 已断开")
+        self._browser_pid = None
+        logger.info("CDP 已断开，浏览器已关闭")
+
+    def disconnect_sync(self) -> None:
+        """同步断开 CDP 并强制关闭浏览器（线程安全）。
+
+        供 Web API stop 端点从后台线程调用。
+        """
+        if self._browser is None and self._playwright is None:
+            return
+
+        # 杀浏览器进程
+        if self._browser_pid is not None:
+            _kill_process(self._browser_pid)
+            logger.info(f"CDP 浏览器进程已强制终止 pid={self._browser_pid}")
+
+        self._browser = None
+        self._playwright = None
+        self._browser_pid = None
+        logger.info("CDP 已通过 API stop 断开")
 
     async def new_page(
         self, url: str | None = None, proxy: str | None = None

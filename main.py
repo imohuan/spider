@@ -225,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
     scheduler = components["scheduler"]
     proxy_pool = components["proxy_pool"]
     browser = components["browser"]
+    cdp_browser = components["cdp_browser"]
+    workflow_scheduler = components["workflow_scheduler"]
     registry = components["registry"]
     config_mgr = components["config"]
 
@@ -246,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
 
         web_app = create_app(static_folder='web/static')
         web_app.config['CRAWLER_COMPONENTS'] = components
-        from web.api.crawler_control import init_scheduler
+        from web.api.crawler_control import init_scheduler, init_browser
         init_scheduler(scheduler)
+        init_browser(browser, cdp_browser)
 
         # 挂 WebSocket 推送回调
         from web.socketio_handlers import push_workflow_task_update
