@@ -1,8 +1,14 @@
 from __future__ import annotations
+import json as _json
 from flask import Blueprint, current_app, jsonify, request
 from core.storage import Storage
 
 bp = Blueprint('queue', __name__)
+
+
+def _convert_edit_this_cookie(raw: list) -> dict:
+    """将 EditThisCookie JSON 转换为 httpx cookies 格式 {name: value}。"""
+    return {item["name"]: item["value"] for item in raw if "name" in item and "value" in item}
 
 
 def _resolve_parser_name(url: str, parser_name: str | None) -> str | None:
@@ -76,7 +82,6 @@ def create_task():
     返回:
         {ok: true, queue_id: int}
     """
-    import json as _json
     data = request.get_json(silent=True) or {}
     url = (data.get('url', '') or '').strip()
     if not url:
@@ -85,6 +90,19 @@ def create_task():
     parser_name = data.get('parser_name') or None
     fetch_mode = data.get('fetch_mode') or 'browser'
     request_config = data.get('request_config') or None
+    
+    # Cookie 预设自动匹配（不覆盖前端显式传入的 cookies）
+    if not request_config or 'cookies' not in request_config:
+        s = Storage()
+        matched = s.match_cookie_preset(url)
+        if matched is not None:
+            try:
+                preset_cookies = _json.loads(matched[3])  # cookies_json 列
+                if isinstance(preset_cookies, list) and len(preset_cookies) > 0:
+                    request_config = request_config or {}
+                    request_config['cookies'] = _convert_edit_this_cookie(preset_cookies)
+            except (_json.JSONDecodeError, Exception):
+                pass  # 格式异常静默忽略，不影响入队
     
     # 如果未指定 parser_name，尝试自动匹配
     resolved_parser = _resolve_parser_name(url, parser_name)
