@@ -845,13 +845,13 @@ class RequestPool:
             return cookies
         return []
 
-    # ---------------- test-url 调试入口 ----------------
+    # ---------------- debug_parse 调试入口 ----------------
 
     async def debug_parse(
         self, url: str, registry: Any, parser_name: str = "",
         show_window: bool = False, keep_open_seconds: int = 0,
     ) -> dict:
-        """test-url 完整流程：创建 debug RequestPool → process_url → 读取捕获结果。
+        """get-url 完整流程：创建 debug RequestPool → process_url → 读取捕获结果。
 
         与 :meth:`process_url` 走 **完全相同** 的代码路径（``_process_url_async``），
         区别仅在于注入 ``DebugStorage``（捕获数据不写 DB）+ ``NoOpStateMachine`` + 无代理/验证码/图片下载。

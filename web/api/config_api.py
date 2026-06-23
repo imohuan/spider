@@ -40,7 +40,7 @@ def reset_defaults():
     return jsonify({"ok": True})
 
 
-@bp.route("/test-url", methods=["POST"])
+@bp.route("/get-url", methods=["POST"])
 def test_url():
     """测试 URL — 委托 RequestPool.debug_parse() 走完整 Parser pipeline。
 
@@ -94,7 +94,7 @@ def test_url():
             status = 400
         return jsonify(result), status
     except Exception as e:
-        logger.error(f"test-url 失败: {e}", exc_info=True)
+        logger.error(f"get-url 失败: {e}", exc_info=True)
         return jsonify({
             "ok": False,
             "error": str(e),

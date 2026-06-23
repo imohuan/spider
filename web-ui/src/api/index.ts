@@ -45,12 +45,12 @@ export const configApi = {
   update: (data: Record<string, string>) => api.put('/config', data),
   reset: () => api.post('/config/reset'),
   /** 测试 URL — 走完整 Parser pipeline（browser 模式可能较慢，60s 超时） */
-  testUrl: (payload: {
+  getUrl: (payload: {
     url: string
     parser?: string       // 可选, 从 Parser 卡片进入时携带
     show_window?: boolean // 可选, 显示浏览器窗口（调试用）
     keep_open_seconds?: number // 可选, 保持浏览器打开 N 秒
-  }) => http.post('/config/test-url', payload, { timeout: 60000 }),
+  }) => http.post('/config/get-url', payload, { timeout: 60000 }),
   /** 列出当前保持打开的 debug 浏览器会话 */
   getDebugPages: () => api.get('/config/debug-pages'),
   /** 手动关闭 debug 浏览器页面 */

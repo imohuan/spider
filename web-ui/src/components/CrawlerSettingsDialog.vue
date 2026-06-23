@@ -62,7 +62,7 @@ async function runTest() {
   if (props.parserName) payload.parser = props.parserName
 
   try {
-    const result = await configApi.testUrl(payload)
+    const result = await configApi.getUrl(payload)
     testResult.value = result
 
     addHistory({
