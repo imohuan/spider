@@ -57,6 +57,7 @@ def run_workflow():
 
     workflow_name = data.get("workflow_name")
     params = data.get("params", {})
+    ref_id = data.get("ref_id")
 
     if not workflow_name:
         return jsonify({"error": "workflow_name is required"}), 400
@@ -77,8 +78,8 @@ def run_workflow():
     params_json = json.dumps(params, ensure_ascii=False)
     with storage.get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO workflow_queue (workflow_name, params) VALUES (?, ?)",
-            (workflow_name, params_json),
+            "INSERT INTO workflow_queue (workflow_name, ref_id, params) VALUES (?, ?, ?)",
+            (workflow_name, ref_id, params_json),
         )
         task_id = cur.lastrowid
 
@@ -112,7 +113,7 @@ def list_tasks():
         where = "WHERE " + " AND ".join(conditions)
 
     sql = (
-        f"SELECT id, workflow_name, params, status, result, error, "
+        f"SELECT id, workflow_name, ref_id, params, status, result, error, "
         f"created_at, started_at, finished_at "
         f"FROM workflow_queue {where} ORDER BY created_at DESC LIMIT ?"
     )
@@ -124,6 +125,7 @@ def list_tasks():
         result.append({
             "id": row["id"],
             "workflow_name": row["workflow_name"],
+            "ref_id": row["ref_id"],
             "params": row["params"],
             "status": row["status"],
             "result": row["result"],
@@ -144,7 +146,7 @@ def get_task(task_id: int):
         return jsonify({"error": "Storage not initialized"}), 500
 
     row = storage.execute(
-        "SELECT id, workflow_name, params, status, result, error, "
+        "SELECT id, workflow_name, ref_id, params, status, result, error, "
         "created_at, started_at, finished_at "
         "FROM workflow_queue WHERE id=?",
         (task_id,),
@@ -157,6 +159,7 @@ def get_task(task_id: int):
     return jsonify({
         "id": row["id"],
         "workflow_name": row["workflow_name"],
+        "ref_id": row["ref_id"],
         "params": row["params"],
         "status": row["status"],
         "result": row["result"],

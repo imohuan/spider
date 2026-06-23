@@ -115,21 +115,22 @@ def get_registry() -> WorkflowRegistry:
     return _registry
 
 
-def enqueue_workflow(workflow_name: str, params: dict | None = None) -> int:
+def enqueue_workflow(workflow_name: str, params: dict | None = None, ref_id: int | None = None) -> int:
     """将工作流任务入队，返回 task_id。
 
     供非 Parser 代码调用::
 
         from core.workflow_registry import enqueue_workflow
-        task_id = enqueue_workflow("report", {"city": "北京"})
+        task_id = enqueue_workflow("report", {"city": "北京"}, ref_id=123)
 
     Parser 中请直接使用 self.storage.enqueue_workflow(...)
 
     :param workflow_name: workflow 名称
     :param params: 传递给 execute 的参数
+    :param ref_id: 关联的业务 ID
     :return: workflow_queue.id
     """
     from core.storage import Storage
 
     with Storage() as storage:
-        return storage.enqueue_workflow(workflow_name, params)
+        return storage.enqueue_workflow(workflow_name, params, ref_id=ref_id)

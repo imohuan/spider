@@ -181,6 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_cookie_presets_domain ON cookie_presets(domain);
 CREATE TABLE IF NOT EXISTS workflow_queue (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_name   TEXT NOT NULL,
+    ref_id          INTEGER,
     params          TEXT,
     status          TEXT DEFAULT 'pending',
     result          TEXT,
@@ -290,6 +291,26 @@ class Storage:
                     sql = f"ALTER TABLE proxy_pool ADD COLUMN {_validate_identifier(col_name)} {col_type}"
                     self._conn.execute(sql)
                     logger.info(f"自动迁移: proxy_pool 表添加列 {col_name} {col_type}")
+            self._conn.commit()
+
+        # workflow_queue 表迁移
+        workflow_columns = [
+            ("ref_id", "INTEGER"),
+        ]
+        with self._lock:
+            existing = {
+                row[1]
+                for row in self._conn.execute("PRAGMA table_info(workflow_queue)").fetchall()
+            }
+            for col_name, col_type in workflow_columns:
+                if col_name not in existing:
+                    sql = f"ALTER TABLE workflow_queue ADD COLUMN {_validate_identifier(col_name)} {col_type}"
+                    self._conn.execute(sql)
+                    logger.info(f"自动迁移: workflow_queue 表添加列 {col_name} {col_type}")
+            # 创建 ref_id 索引（幂等）
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_workflow_ref ON workflow_queue(ref_id)"
+            )
             self._conn.commit()
 
     # ---------------- 上下文管理 ----------------
@@ -673,15 +694,16 @@ class Storage:
 
     # ---------------- 工作流队列 ----------------
 
-    def enqueue_workflow(self, workflow_name: str, params: dict | None = None) -> int:
+    def enqueue_workflow(self, workflow_name: str, params: dict | None = None, ref_id: int | None = None) -> int:
         """将工作流任务入队，返回 task_id。
 
         供 Parser 代码调用::
 
-            self.storage.enqueue_workflow("report", {"city": city, "ref_id": task_id})
+            self.storage.enqueue_workflow("report", {"city": city}, ref_id=task_id)
 
         :param workflow_name: workflow 名称（对应文件名，不含 .py）
         :param params: 传递给 execute 的参数 dict
+        :param ref_id: 关联的业务 ID（如 queue.id），方便查询对照
         :return: workflow_queue.id
         """
         if params is not None and not isinstance(params, dict):
@@ -689,12 +711,12 @@ class Storage:
         params_json = json.dumps(params or {}, ensure_ascii=False)
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO workflow_queue (workflow_name, params) VALUES (?, ?)",
-                (workflow_name, params_json),
+                "INSERT INTO workflow_queue (workflow_name, ref_id, params) VALUES (?, ?, ?)",
+                (workflow_name, ref_id, params_json),
             )
             self._conn.commit()
             task_id = cur.lastrowid
-        logger.info(f"工作流入队: {workflow_name} → task_id={task_id}")
+        logger.info(f"工作流入队: {workflow_name} ref_id={ref_id} → task_id={task_id}")
         return task_id
 
     def _init_schema(self) -> None:
