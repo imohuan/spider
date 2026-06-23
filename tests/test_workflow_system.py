@@ -53,6 +53,46 @@ class TestWorkflowQueueTable:
         finally:
             os.unlink(db.name)
 
+    def test_enqueue_workflow_returns_task_id(self):
+        """storage.enqueue_workflow() 插入 pending 任务并返回 id。"""
+        db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        db.close()
+        try:
+            from core.storage import Storage
+            s = Storage(db.name)
+            task_id = s.enqueue_workflow("report", {"city": "北京"})
+            assert task_id > 0
+
+            row = s.execute(
+                "SELECT workflow_name, params, status FROM workflow_queue WHERE id=?",
+                (task_id,), fetch="one",
+            )
+            assert row["workflow_name"] == "report"
+            assert json.loads(row["params"]) == {"city": "北京"}
+            assert row["status"] == "pending"
+            s.close()
+        finally:
+            os.unlink(db.name)
+
+    def test_enqueue_workflow_empty_params(self):
+        """enqueue_workflow 空 params 不报错。"""
+        db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        db.close()
+        try:
+            from core.storage import Storage
+            s = Storage(db.name)
+            task_id = s.enqueue_workflow("cleanup")
+            assert task_id > 0
+
+            row = s.execute(
+                "SELECT params FROM workflow_queue WHERE id=?",
+                (task_id,), fetch="one",
+            )
+            assert json.loads(row["params"]) == {}
+            s.close()
+        finally:
+            os.unlink(db.name)
+
 
 # ──────────────────────────────────────────────────────────
 # Task 1: WorkflowRegistry 自动发现

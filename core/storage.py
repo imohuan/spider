@@ -671,6 +671,30 @@ class Storage:
             ).fetchall()
         return {r[0]: r[1] for r in rows}
 
+    # ---------------- 工作流队列 ----------------
+
+    def enqueue_workflow(self, workflow_name: str, params: dict | None = None) -> int:
+        """将工作流任务入队，返回 task_id。
+
+        供 Parser 代码调用::
+
+            self.storage.enqueue_workflow("report", {"city": city, "ref_id": task_id})
+
+        :param workflow_name: workflow 名称（对应文件名，不含 .py）
+        :param params: 传递给 execute 的参数 dict
+        :return: workflow_queue.id
+        """
+        params_json = json.dumps(params or {}, ensure_ascii=False)
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO workflow_queue (workflow_name, params) VALUES (?, ?)",
+                (workflow_name, params_json),
+            )
+            self._conn.commit()
+            task_id = cur.lastrowid
+        logger.info(f"工作流入队: {workflow_name} → task_id={task_id}")
+        return task_id
+
     def _init_schema(self) -> None:
         """(Re-)apply system schema (idempotent). Used by tests."""
         self.init_db()

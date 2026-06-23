@@ -115,30 +115,24 @@ def get_registry() -> WorkflowRegistry:
     return _registry
 
 
-def enqueue_workflow(workflow_name: str, params: dict) -> int:
+def enqueue_workflow(workflow_name: str, params: dict | None = None) -> int:
     """将工作流任务入队，返回 task_id。
 
-    供 Parser 代码调用::
+    供非 Parser 代码调用::
 
         from core.workflow_registry import enqueue_workflow
         task_id = enqueue_workflow("report", {"city": "北京"})
 
-    :param workflow_name: workflow 名称（对应文件名，不含 .py）
+    Parser 中请直接使用 self.storage.enqueue_workflow(...)
+
+    :param workflow_name: workflow 名称
     :param params: 传递给 execute 的参数
     :return: workflow_queue.id
     """
     from core.storage import Storage
 
-    params_json = json.dumps(params, ensure_ascii=False)
     with Storage() as storage:
-        with storage.get_connection() as conn:
-            cur = conn.execute(
-                "INSERT INTO workflow_queue (workflow_name, params) VALUES (?, ?)",
-                (workflow_name, params_json),
-            )
-            task_id = cur.lastrowid
-    logger.info(f"工作流入队: {workflow_name} → task_id={task_id} params={params}")
-    return task_id
+        return storage.enqueue_workflow(workflow_name, params)
 
 
 # 延迟导入避免循环

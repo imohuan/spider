@@ -1,7 +1,15 @@
 """示例 workflow — 文件名以 _ 开头不会被自动扫描。
 
-复制此文件并改名（去掉 _ 前缀）即可创建新 workflow。
-例如: cp _example.py report.py
+复制此文件并改名（去掉 _ 前缀）即可创建新 workflow:
+    cp workflows/_example.py workflows/report.py
+
+调用方式:
+    # Parser 中:
+    self.storage.enqueue_workflow("report", {"city": city, "ref_id": task_id})
+
+    # 非 Parser 代码:
+    from core.workflow_registry import enqueue_workflow
+    enqueue_workflow("report", {"city": "北京"})
 """
 from core.logger import get_logger
 
