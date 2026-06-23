@@ -235,7 +235,7 @@ class ShengyiZRDetailParser(SimplePageParser):
             "table": self.table_name,
             "url": url,
             "fields": sorted(row.keys()),
-        })
+        }, ref_id=getattr(self, '_queue_id', None))
 
         return [row]
 

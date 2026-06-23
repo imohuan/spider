@@ -172,6 +172,7 @@ class RequestPool:
         raw_path = self._save_raw_response(queue_id, request_id, html)
         response_size = len(html.encode("utf-8"))
         parser.storage = self.storage
+        parser._queue_id = queue_id
         data = parser.parse(html, url)
         return html, data, response_size, raw_path
 
@@ -350,6 +351,7 @@ class RequestPool:
                 # 解析（Parser 已兼容 HTML 字符串）
                 try:
                     parser.storage = self.storage
+                    parser._queue_id = queue_id
                     data = parser.parse(html, url)
                 except Exception as e:
                     logger.error(f"[Parser:{parser.__class__.__name__}] 解析失败: {url} {e}", exc_info=True)
