@@ -13,10 +13,14 @@ JSON 中的 ``companyList``，返回公司搜索结果的标准化数据。
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
+from core.logger import get_logger
 from parser.base import BaseParser
+
+logger = get_logger("parser.tianyancha")
 
 
 def _find_company_list(data: Any) -> list[dict] | None:
@@ -100,6 +104,13 @@ class TianyanchaSearchParser(BaseParser):
     preferred_fetch_mode = "browser"
     requires_browser = False
 
+    # 天眼查验证码页面特征
+    _CAPTCHA_INDICATORS = [
+        "验证", "人机验证", "安全验证", "身份验证", "身份认证",
+        "captcha", "verify", "humansearch",
+        "滑动拼图", "拖动滑块", "点击按钮开始验证",
+    ]
+
     table_name = "tianyancha_search"
     table_schema = """
         CREATE TABLE tianyancha_search (
@@ -140,6 +151,55 @@ class TianyanchaSearchParser(BaseParser):
             crawled_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """
+
+    async def on_wait_ready(self, page, **kwargs):
+        """页面加载后检测验证码，显示浏览器等待人工解决。"""
+        is_captcha = await self._detect_captcha(page)
+        if not is_captcha:
+            return
+
+        browser = kwargs.get("browser")
+        logger.warning("天眼查验证码页面，显示浏览器等待人工处理...")
+
+        # 尝试弹窗（headless 模式下静默忽略）
+        if browser is not None:
+            await browser.show_page(page)
+
+        # 轮询等待验证码消失（每 2 秒检测，最多 5 分钟）
+        for i in range(150):
+            await asyncio.sleep(2)
+            is_captcha = await self._detect_captcha(page)
+            if not is_captcha:
+                logger.info("验证码已解决，继续解析")
+                return
+
+        raise TimeoutError("天眼查验证码等待超时（5分钟）")
+
+    @staticmethod
+    async def _detect_captcha(page) -> bool:
+        """检测当前页面是否为验证码页。"""
+        indicators = TianyanchaSearchParser._CAPTCHA_INDICATORS
+        try:
+            url = page.url.lower()
+            if any(kw in url for kw in ("captcha", "verify", "checkcode", "humansearch")):
+                return True
+        except Exception:
+            pass
+        try:
+            title = await page.title()
+            if title and any(kw in title for kw in indicators):
+                return True
+        except Exception:
+            pass
+        try:
+            content = await page.content()
+            if isinstance(content, str):
+                text = content.lower()
+                if any(kw.lower() in text for kw in indicators):
+                    return True
+        except Exception:
+            pass
+        return False
 
     def parse(self, page, url: str) -> list[dict]:
         html = self._get_html(page)

@@ -207,6 +207,17 @@ class CrawlerBrowser:
         if delay > 0:
             await asyncio.sleep(delay)
 
+    async def show_page(self, page: Any) -> None:
+        """尝试将页面弹到前台。
+        
+        headless 模式下窗口不存在，捕获异常静默忽略。
+        """
+        try:
+            await page.bring_to_front()
+            await page.evaluate("window.focus()")
+        except Exception:
+            pass  # headless 模式无窗口，忽略
+
     async def close_page(self, page: Any) -> None:
         """关闭 page 及其 context。"""
         if page is None:

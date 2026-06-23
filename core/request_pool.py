@@ -151,7 +151,7 @@ class RequestPool:
 
         on_wait_ready = getattr(parser, "on_wait_ready", None)
         if on_wait_ready is not None:
-            await on_wait_ready(page)
+            await on_wait_ready(page, browser=browser)
 
         return page, duration_ms
 

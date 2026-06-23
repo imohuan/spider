@@ -112,6 +112,14 @@ class CrawlerBrowserCDP:
 
         return page
 
+    async def show_page(self, page: Any) -> None:
+        """尝试将页面弹到前台。CDP 模式下 Chrome 由用户手动启动，窗口始终存在。"""
+        try:
+            await page.bring_to_front()
+            await page.evaluate("window.focus()")
+        except Exception:
+            pass
+
     async def close_page(self, page: Any) -> None:
         """关闭标签页（不关闭 context，避免影响用户其他标签页）。"""
         if page is None:
