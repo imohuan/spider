@@ -1,23 +1,26 @@
 """58 厨具商家 AI 评估 workflow — 图片下载 → 压缩 → 合并宫格 → AI 视觉分析。
 
 功能链路：
-  1. 同步下载图片（hash 缓存去重，参考 ImageDownloader 两级去重）
-  2. Pillow 压缩（限最大边长 + JPEG 质量）
-  3. 多图合并宫格图（自适应行列数）
-  4. base64 编码 → 调用 core.ai.AIClient 做视觉评估
-  5. 返回结构化 JSON（评分/评级/维度详评/收购建议）
+  1. 从 Parser row（shengyizr_detail）自动提取 photos + 商家字段
+  2. 同步下载图片（hash 缓存去重，参考 ImageDownloader 两级去重）
+  3. Pillow 压缩（限最大边长 + JPEG 质量）
+  4. 多图合并宫格图（自适应行列数）
+  5. base64 编码 → 调用 core.ai.AIClient 做视觉评估
+  6. 返回结构化 JSON（评分/评级/维度详评/收购建议）
 
 调用方式::
 
-    from core.workflow_registry import enqueue_workflow
+    # 方式1：Parser 自动入队（row 来自 shengyizr_detail 解析结果）
+    self.storage.enqueue_workflow("58-ai-check", {
+        "table": self.table_name,
+        "url": url,
+        "row": row,  # 含 photos / title / price / area / district 等
+    })
 
+    # 方式2：手动传入图片 URL
     enqueue_workflow("58-ai-check", {
-        "image_urls": [
-            "https://pic.58.com/xxx.jpg",
-            "https://pic.58.com/yyy.jpg",
-        ],
-        "city": "北京",                           # 可选
-        "extra_context": "期望转让费 5 万以内",    # 可选
+        "image_urls": ["https://pic.58.com/xxx.jpg"],
+        "extra_context": "期望转让费 5 万以内",
     })
 """
 from __future__ import annotations
@@ -47,13 +50,16 @@ logger = get_logger("workflow.58-ai-check")
 SYSTEM_PROMPT = """你是一个厨具二手批发商，有多年商用厨房设备采购经验。
 你需要浏览商家发布的转让/出售信息中的图片，评估哪些商家更有合作潜力。
 
-请从以下维度逐一分析图片，并给出综合评估：
+请从以下维度逐一分析图片，并结合商家提供的文本信息，给出综合评估：
 
 1. **铺面规模** — 店面/仓库面积大小，是否能容纳大量设备库存
 2. **设备状况** — 设备新旧程度、品牌档次、摆放是否整齐有序
 3. **经营品类** — 设备种类的丰富度和市场需求匹配度
 4. **信息可靠性** — 图片是否真实拍摄（非网图/PS）、是否展示实际场景
 5. **转让诚意** — 从图片中判断商家是否真正想出手（如店面清仓、搬迁迹象）
+
+请综合商家文本信息（租金、转让费、面积、位置、经营类型等）与图片内容，
+判断该商家与厨具二手批发业务的匹配程度，以及是否有合作收购价值。
 
 **最终输出必须是严格的 JSON 格式，不要包含 markdown 代码块标记：**
 {
@@ -80,36 +86,65 @@ _MAX_IMAGES = 9  # 单次最多处理图片数（避免 token 爆炸）
 async def execute(params: dict, storage=None, ref_id=None) -> dict:
     """工作流入口。
 
-    :param params:
-        - image_urls: list[str] — 图片 URL 列表（必填）
-        - city: str — 城市（可选，附加到提示词）
-        - extra_context: str — 额外上下文（可选，附加到提示词）
+    支持两种入参模式：
+
+    **Parser 模式** — 直接从 shengyizr_detail row 提取：
+        - table: str — 数据表名
+        - url: str — 原始 URL
+        - row: dict — 解析后的数据行（含 photos / title / price / area 等）
+
+    **手动模式** — 直接传图片 URL：
+        - image_urls: list[str] — 图片 URL 列表
+        - extra_context: str — 额外描述
+
+    通用参数：
         - max_size: int — 压缩最大边长，默认 1024
         - quality: int — JPEG 质量 1-100，默认 75
         - max_cols: int — 宫格最大列数，默认 3
-        - system_prompt: str — 覆盖默认系统提示词（可选）
+        - system_prompt: str — 覆盖默认系统提示词
+
     :param storage: Storage 实例（workflow_scheduler 注入）
     :param ref_id: 关联 ID（workflow_scheduler 注入）
     :returns: 结构化评估结果
     """
-    image_urls: list[str] = params.get("image_urls", [])
-    if not image_urls:
-        return {"status": "error", "message": "缺少 image_urls 参数"}
+    # ── 0. 提取图片 URL（兼容两种模式）──
+    row: dict | None = params.get("row")
+    image_urls: list[str]
+    listing_info: str = ""  # 商家文本信息（Parser 模式用）
+
+    if row:
+        # Parser 模式：从 row.photos 提取（| 分隔的 URL 列表）
+        photos_raw = row.get("photos", "")
+        image_urls = _parse_photos(photos_raw)
+        listing_info = _build_listing_info(row, params.get("url", ""))
+        if not image_urls:
+            return {
+                "status": "skipped",
+                "message": "商家无图片",
+                "url": params.get("url"),
+                "title": row.get("title", ""),
+            }
+    else:
+        # 手动模式
+        image_urls = params.get("image_urls", [])
+        if params.get("extra_context"):
+            listing_info = f"补充信息：{params['extra_context']}"
+        if not image_urls:
+            return {"status": "error", "message": "缺少 image_urls 或 row 参数"}
 
     # 截断到最大处理数
     if len(image_urls) > _MAX_IMAGES:
         logger.warning(f"图片数 {len(image_urls)} 超过上限 {_MAX_IMAGES}，截断处理")
         image_urls = image_urls[:_MAX_IMAGES]
 
-    city = params.get("city", "")
-    extra_context = params.get("extra_context", "")
     max_size = int(params.get("max_size", DEFAULT_MAX_SIZE))
     quality = int(params.get("quality", DEFAULT_QUALITY))
     max_cols = int(params.get("max_cols", DEFAULT_MAX_COLS))
     system_prompt = params.get("system_prompt", SYSTEM_PROMPT)
 
     # ── 1. 下载图片 ──
-    logger.info(f"开始评估 {len(image_urls)} 张图片")
+    logger.info(f"开始评估 {len(image_urls)} 张图片"
+                f"{' 标题: ' + row.get('title', '') if row else ''}")
     local_paths: list[str] = []
     failed_urls: list[str] = []
     for url in image_urls:
@@ -156,10 +191,8 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
 
     # ── 5. 构建提示词 ──
     user_text = "请评估以下商家图片。"
-    if city:
-        user_text += f" 城市：{city}。"
-    if extra_context:
-        user_text += f" 补充信息：{extra_context}。"
+    if listing_info:
+        user_text += f"\n\n{listing_info}"
 
     # ── 6. AI 调用 ──
     try:
@@ -226,6 +259,8 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
         "status": "ok",
         "result": eval_result,
         "meta": {
+            "url": params.get("url"),
+            "title": row.get("title") if row else None,
             "total_images": len(image_urls),
             "downloaded": len(local_paths),
             "failed_urls": failed_urls,
@@ -235,6 +270,143 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
             "duration_ms": duration_ms,
         },
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 图片 URL 提取
+# ═══════════════════════════════════════════════════════════════════
+
+def _parse_photos(photos_raw: str) -> list[str]:
+    """从 | 分隔的图片 URL 字符串提取有效 URL 列表。
+
+    样例: ``"https://a.jpg|https://b.jpg|"`` → ``["https://a.jpg", "https://b.jpg"]``
+    """
+    if not photos_raw or not photos_raw.strip():
+        return []
+    return [
+        url.strip() for url in photos_raw.split("|")
+        if url.strip().startswith("http")
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 商家信息 → 提示词拼接
+# ═══════════════════════════════════════════════════════════════════
+
+def _build_listing_info(row: dict, url: str = "") -> str:
+    """将 shengyizr_detail row 拼成结构化的商家信息文本。
+
+    样例输出::
+
+        标题：餐饮设备齐全转租
+        位置：北京 朝阳区 望京
+        月租：8000 元/月
+        转让费：面议
+        面积：120 m2
+        商铺类型：临街商铺
+        经营状态：经营中
+        经营类型：餐饮美食
+        标签：临街, 可空转, 转让费便宜
+        描述：店铺已经营5年，设备齐全，因回老家忍痛转让...
+    """
+    parts: list[str] = []
+
+    # 标题
+    title = row.get("title", "")
+    if title:
+        parts.append(f"标题：{title}")
+
+    # 价格
+    price = _fmt_price(row)
+    if price:
+        parts.append(f"月租：{price}")
+
+    # 转让费
+    transfer = row.get("transfer_fee", "").strip()
+    if transfer:
+        parts.append(f"转让费：{transfer}")
+
+    # 位置
+    district = row.get("district", "").strip()
+    block = row.get("block", "").strip()
+    address = row.get("address", "").strip()
+    loc_parts = [p for p in [district, block, address] if p]
+    if loc_parts:
+        parts.append(f"位置：{' '.join(loc_parts)}")
+
+    # 面积
+    area = row.get("area", "").strip()
+    if area:
+        parts.append(f"面积：{area}")
+
+    # 商铺类型 / 性质
+    prop_type = row.get("property_type", "").strip()
+    if prop_type:
+        parts.append(f"商铺类型：{prop_type}")
+    prop_nature = row.get("property_nature", "").strip()
+    if prop_nature:
+        parts.append(f"商铺性质：{prop_nature}")
+
+    # 楼层
+    floor = row.get("floor", "").strip()
+    if floor:
+        parts.append(f"楼层：{floor}")
+
+    # 租期
+    lease = row.get("remaining_lease", "").strip()
+    if lease:
+        parts.append(f"剩余租期：{lease}")
+
+    # 经营状态 / 类型
+    biz_status = row.get("biz_status", "").strip()
+    if biz_status:
+        parts.append(f"经营状态：{biz_status}")
+    biz_type = row.get("biz_type", "").strip()
+    if biz_type:
+        parts.append(f"经营类型：{biz_type}")
+
+    # 转让类型
+    transfer_type = row.get("transfer_type", "").strip()
+    if transfer_type:
+        parts.append(f"转让类型：{transfer_type}")
+
+    # 标签
+    tags = row.get("tags", "").strip()
+    if tags:
+        parts.append(f"标签：{tags}")
+
+    # 配套设施
+    facilities = row.get("facilities", "").strip()
+    if facilities:
+        # 格式: "上水:有|下水:有|天然气:无" → "上水、下水、天然气"
+        facility_names = [
+            f.split(":")[0]
+            for f in facilities.split("|") if f.strip()
+        ]
+        parts.append(f"配套设施：{'、'.join(facility_names)}")
+
+    # 描述
+    desc = row.get("description", "").strip()
+    if desc:
+        # 截断过长描述（留 500 字给 AI）
+        if len(desc) > 500:
+            desc = desc[:500] + "..."
+        parts.append(f"描述：{desc}")
+
+    # 链接
+    if url:
+        parts.append(f"链接：{url}")
+
+    return "\n".join(parts)
+
+
+def _fmt_price(row: dict) -> str:
+    """格式化价格: 8000 元/月"""
+    num = row.get("price_num", "").strip()
+    unit = row.get("price_unit", "").strip()
+    if not num:
+        return ""
+    return f"{num} {unit}" if unit else num
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -249,13 +421,11 @@ def _extract_json(text: str) -> dict[str, Any] | None:
       2. 被 markdown ```json ... ``` 包裹
       3. 文本中间包含 JSON 对象
     """
-    # 尝试直接解析
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # 尝试提取 ```json ... ``` 代码块
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if m:
         try:
@@ -263,7 +433,6 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         except json.JSONDecodeError:
             pass
 
-    # 尝试提取第一个 { ... } JSON 对象
     m = re.search(r"\{[\s\S]*\}", text)
     if m:
         try:
