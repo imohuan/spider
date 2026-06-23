@@ -226,9 +226,9 @@ onMounted(async () => {
             <div class="text-xs text-secondary mb-1">
               已保存模板 ({{ templates.length }})
             </div>
-            <div class="space-x-ax-xs overflow-x-auto">
-              <div v-for="t in [...templates,...templates,...templates,...templates]" :key="t.id"
-                class="relative p-ax-xs rounded-lg border cursor-pointer transition-colors w-[150px] h-[200px] overflow-hidden" :class="selectedTemplateId === t.id
+            <div class="flex gap-ax-xs overflow-x-auto pb-ax-xs">
+              <div v-for="t in templates" :key="t.id"
+                class="relative flex-shrink-0 p-ax-xs rounded-lg border cursor-pointer transition-colors w-[160px] h-[180px] overflow-hidden" :class="selectedTemplateId === t.id
                   ? 'border-primary bg-primary/5'
                   : 'border-outline-variant hover:border-outline-secondary'" @click="selectTemplate(t)">
                 <div class="overflow-hidden pr-4"
