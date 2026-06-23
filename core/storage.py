@@ -156,6 +156,16 @@ CREATE TABLE IF NOT EXISTS image_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_image_queue_status ON image_queue(status);
 CREATE INDEX IF NOT EXISTS idx_image_queue_url_hash ON image_queue(url_hash);
+
+CREATE TABLE IF NOT EXISTS templates (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name      TEXT NOT NULL,
+    template_html   TEXT NOT NULL,
+    template_name   TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_templates_table ON templates(table_name);
 """
 
 

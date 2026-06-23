@@ -23,7 +23,7 @@ def list_tables():
         rows = s.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type='table' "
-            "AND name NOT IN ('config','queue','requests','seen_urls','proxy_pool','captcha_log') "
+            "AND name NOT IN ('config','queue','requests','seen_urls','proxy_pool','captcha_log','image_queue','templates') "
             "AND name NOT LIKE 'sqlite_%' "
             "ORDER BY name",
             fetch="all",

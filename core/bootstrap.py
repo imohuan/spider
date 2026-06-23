@@ -59,6 +59,10 @@ def cancel_all_tasks(loop: asyncio.AbstractEventLoop, logger: logging.Logger | N
 
     Ctrl+C 后 Playwright 连接可能已断开，导致残留的 Connection.run() 协程。
     不清理则 ``loop.close()`` 打印 "Task was destroyed but it is pending!"。
+
+    兼容两种调用场景：
+    - 与 loop 同线程（已停止）：直接用 run_until_complete 等待取消完成
+    - 与 loop 不同线程（loop 仍在运行）：通过 run_coroutine_threadsafe 调度
     """
     pending = asyncio.all_tasks(loop)
     if not pending:
@@ -67,7 +71,19 @@ def cancel_all_tasks(loop: asyncio.AbstractEventLoop, logger: logging.Logger | N
         logger.debug(f"取消 {len(pending)} 个待处理异步任务")
     for t in pending:
         t.cancel()
-    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+    if loop.is_running():
+        # loop 在另一个线程中运行 — 将取消调度回该线程执行
+        async def _drain() -> None:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        f = asyncio.run_coroutine_threadsafe(_drain(), loop)
+        try:
+            f.result(timeout=5)
+        except Exception:
+            pass
+    else:
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -248,7 +264,12 @@ def start_image_worker(
     loop = create_event_loop()
 
     def _run_worker():
-        loop.run_until_complete(img_worker.run())
+        try:
+            loop.run_until_complete(img_worker.run())
+        except (RuntimeError, asyncio.CancelledError):
+            # loop.stop() 中断 run_until_complete → RuntimeError
+            # task 被 cancel → CancelledError
+            pass
 
     t = threading.Thread(target=_run_worker, daemon=True)
     t.start()
@@ -273,10 +294,13 @@ def stop_image_worker(
     :param timeout: 等待 worker 协程取消的超时秒数
     """
     worker.stop()
-    # 取消 event loop 中所有 pending task，给 run() 一个机会退出
-    cancel_all_tasks(loop, logger)
+    # 先停 loop 再 cancel tasks：run_until_complete 不能在另一线程正在运行时调用
     loop.call_soon_threadsafe(loop.stop)
     thread.join(timeout=timeout)
+    if thread.is_alive() and logger:
+        logger.warning(f"图片队列 Worker 线程未在 {timeout}s 内退出")
+    # 此时 loop 已停止（或线程超时但 loop 已收到 stop 信号），可以安全调用
+    cancel_all_tasks(loop, logger)
     loop.close()
     if logger:
         logger.info("图片队列 Worker 已停止")

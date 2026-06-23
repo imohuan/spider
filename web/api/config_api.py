@@ -7,7 +7,7 @@ from flask import Blueprint, jsonify, request
 
 from core.config_manager import ConfigManager
 from core.logger import get_logger
-from core.storage import Storage
+from core.storage import Storage, _validate_identifier
 
 logger = get_logger("web.api.config")
 bp = Blueprint("config", __name__)
@@ -593,3 +593,261 @@ def ai_vision():
     except Exception as e:
         logger.error(f"AI vision failed: {e}\n{traceback.format_exc()}")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/generate-template", methods=["POST"])
+def generate_template():
+    """AI 生成 HTML 预览模板 — 根据表字段和用户描述生成含 {{字段}} 占位符的 HTML。
+
+    Request::
+
+        {
+            "table": "ershouche_list",
+            "prompt": "生成商品卡片列表"
+        }
+
+    Response::
+
+        {
+            "ok": true,
+            "template": "<div class=\"card\">\n  <img src=\"{{image}}\">\n  <h3>{{title}}</h3>\n</div>",
+            "duration_ms": 2345,
+            "usage": {"prompt_tokens": 500, "completion_tokens": 200}
+        }
+    """
+    import asyncio
+    import httpx
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty body"}), 400
+
+    table = (data.get("table") or "").strip()
+    prompt = (data.get("prompt") or "").strip()
+
+    if not table:
+        return jsonify({"ok": False, "error": "table is required"}), 400
+    if not prompt:
+        return jsonify({"ok": False, "error": "prompt is required"}), 400
+
+    try:
+        _validate_identifier(table)
+    except ValueError:
+        return jsonify({"ok": False, "error": f"Invalid table name: {table}"}), 400
+
+    config_mgr = ConfigManager(Storage())
+    base_url = (config_mgr.get("ai_base_url") or "").strip().rstrip("/")
+    api_key = (config_mgr.get("ai_api_key") or "").strip()
+    model = (config_mgr.get("ai_model") or "").strip()
+
+    if not base_url:
+        return jsonify({"ok": False, "error": "AI Base URL 未配置"}), 400
+    if not api_key:
+        return jsonify({"ok": False, "error": "AI API Key 未配置"}), 400
+    if not model:
+        return jsonify({"ok": False, "error": "AI 模型未配置"}), 400
+
+    s = Storage()
+    cols = s.execute(f"PRAGMA table_info([{table}])", fetch="all")
+    if not cols:
+        return jsonify({"ok": False, "error": f"Table not found: {table}"}), 404
+
+    col_names = [c["name"] for c in cols]
+
+    order_col = "id" if "id" in col_names else f"[{col_names[0]}]"
+    first_rows = s.execute(
+        f"SELECT * FROM [{table}] ORDER BY {order_col} ASC LIMIT 1",
+        fetch="all",
+    )
+    last_rows = s.execute(
+        f"SELECT * FROM [{table}] ORDER BY {order_col} DESC LIMIT 1",
+        fetch="all",
+    )
+
+    first_row = dict(zip(col_names, first_rows[0])) if first_rows else {}
+    last_row = dict(zip(col_names, last_rows[0])) if last_rows else {}
+
+    system_prompt = """你是一个专业的 HTML 模板生成助手。根据用户提供的数据库字段名、示例数据和 UI 描述，生成可直接渲染的 HTML 卡片模板。
+
+规则：
+1. 使用 {{字段名}} 作为数据占位符，字段名严格匹配用户提供的列名
+2. 只输出纯净的 HTML 片段（可含内联 style），不要输出 markdown 代码块标记（```html 等）
+3. 不要包含 <!DOCTYPE>、<html>、<head>、<body> 标签
+4. 不生成 <script> 标签
+5. 图片标签加 onerror="this.style.display='none'" 防止破图
+6. 每个卡片最外层 div 不要设置 width（由外层 CSS Grid 控制），不设固定高度
+7. 设计为响应式卡片：图片顶部、内容底部，视觉干净整洁
+8. 直接输出 HTML 源码，不要任何解释性文字、不要前后缀"""
+
+    user_parts = [
+        f"数据表: {table}",
+        f"可用字段: {', '.join(col_names)}",
+    ]
+
+    if first_row:
+        user_parts.append("\n第一条数据示例:")
+        for k, v in first_row.items():
+            user_parts.append(f"  {k}: {str(v)[:200]}")
+
+    if last_row:
+        user_parts.append("\n最后一条数据示例:")
+        for k, v in last_row.items():
+            user_parts.append(f"  {k}: {str(v)[:200]}")
+
+    user_parts.append(f"\n用户需求描述: {prompt}")
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n".join(user_parts)},
+    ]
+
+    async def _do():
+        t0 = time.perf_counter()
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 4096,
+                    "temperature": 0.7,
+                },
+            )
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+
+        if resp.status_code != 200:
+            try:
+                resp_data = resp.json()
+            except Exception:
+                resp_data = {}
+            error_msg = resp_data.get("error", {}).get("message", resp.text[:200])
+            return {"ok": False, "error": f"{resp.status_code}: {error_msg}", "duration_ms": duration_ms}
+
+        resp_data = resp.json()
+        content = resp_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        template = content.strip()
+        if template.startswith("```html"):
+            template = template[7:]
+        elif template.startswith("```"):
+            template = template[3:]
+        if template.endswith("```"):
+            template = template[:-3]
+        template = template.strip()
+
+        usage = resp_data.get("usage", {})
+        return {
+            "ok": True,
+            "template": template,
+            "duration_ms": duration_ms,
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            },
+        }
+
+    try:
+        result = asyncio.run(_do())
+        # Auto-save to templates table on success
+        if result.get("ok") and result.get("template"):
+            s2 = Storage()
+            s2.execute(
+                "INSERT INTO templates (table_name, template_html, template_name) VALUES (?, ?, ?)",
+                (table, result["template"], f"{table} - {prompt[:30]}"),
+            )
+            logger.info(f"模板已缓存: table={table}")
+        return jsonify(result)
+    except httpx.ConnectError:
+        return jsonify({"ok": False, "error": f"无法连接到 {base_url}"}), 502
+    except httpx.TimeoutException:
+        return jsonify({"ok": False, "error": "请求超时（120s）"}), 504
+    except Exception as e:
+        logger.error(f"generate-template failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/templates", methods=["GET"])
+def list_templates():
+    """列出指定表的所有模板。"""
+    table = request.args.get("table", "").strip()
+    if not table:
+        return jsonify({"ok": False, "error": "table is required"}), 400
+    try:
+        _validate_identifier(table)
+    except ValueError:
+        return jsonify({"ok": False, "error": f"Invalid table name: {table}"}), 400
+
+    s = Storage()
+    rows = s.execute(
+        "SELECT id, table_name, template_html, template_name, created_at, updated_at "
+        "FROM templates WHERE table_name = ? ORDER BY updated_at DESC",
+        (table,),
+        fetch="all",
+    )
+    return jsonify({
+        "ok": True,
+        "templates": [
+            {
+                "id": r["id"],
+                "table_name": r["table_name"],
+                "template_html": r["template_html"],
+                "template_name": r["template_name"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        ],
+    })
+
+
+@bp.route("/templates", methods=["POST"])
+def save_template():
+    """创建或更新模板。
+    
+    Request::
+        { "table_name": "xxx", "template_html": "...", "template_name": "...", "id": 1 }
+    
+    - 不传 id → 新建
+    - 传 id → 更新已有模板
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty body"}), 400
+
+    table_name = (data.get("table_name") or "").strip()
+    template_html = (data.get("template_html") or "").strip()
+    template_name = (data.get("template_name") or "").strip()
+    template_id = data.get("id")
+
+    if not table_name or not template_html:
+        return jsonify({"ok": False, "error": "table_name and template_html are required"}), 400
+    try:
+        _validate_identifier(table_name)
+    except ValueError:
+        return jsonify({"ok": False, "error": f"Invalid table name: {table_name}"}), 400
+
+    s = Storage()
+    if template_id:
+        s.execute(
+            "UPDATE templates SET template_html = ?, template_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (template_html, template_name, int(template_id)),
+        )
+        return jsonify({"ok": True, "id": int(template_id)})
+    else:
+        cur = s.execute(
+            "INSERT INTO templates (table_name, template_html, template_name) VALUES (?, ?, ?)",
+            (table_name, template_html, template_name),
+        )
+        return jsonify({"ok": True, "id": cur.lastrowid}), 201
+
+
+@bp.route("/templates/<int:template_id>", methods=["DELETE"])
+def delete_template(template_id):
+    """删除模板。"""
+    s = Storage()
+    s.execute("DELETE FROM templates WHERE id = ?", (template_id,))
+    return jsonify({"ok": True})

@@ -52,6 +52,14 @@ export const configApi = {
   }) => http.post('/config/test-url', payload, { timeout: 60000 }),
   /** 测试 AI 服务连接 */
   testAi: () => api.post('/config/test-ai'),
+  /** AI 生成 HTML 预览模板 */
+  generateTemplate: (payload: { table: string; prompt: string }) =>
+    http.post('/config/generate-template', payload, { timeout: 120000 }),
+  /** 模板 CRUD */
+  getTemplates: (table: string) => api.get('/config/templates', { table }),
+  saveTemplate: (payload: { table_name: string; template_html: string; template_name?: string; id?: number }) =>
+    api.post('/config/templates', payload),
+  deleteTemplate: (id: number) => api.del(`/config/templates/${id}`),
 }
 
 export const logsApi = {

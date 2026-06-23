@@ -1,7 +1,7 @@
 """storage 模块测试 - 数据库初始化、系统表建表、CRUD、url_hash 去重、业务表自动建表。
 
 测试覆盖：
-- 6 张系统表全部建出（config/queue/requests/seen_urls/proxy_pool/captcha_log）
+- 8 张系统表全部建出（config/queue/requests/seen_urls/proxy_pool/captcha_log/image_queue/templates）
 - 索引全部建出（idx_queue_status / idx_queue_url_hash / idx_requests_queue /
   idx_requests_time / idx_proxy_status / idx_proxy_expire）
 - WAL 模式启用
@@ -60,9 +60,9 @@ def _list_indexes(storage: Storage) -> list[str]:
 # ---------------- 建表 ----------------
 
 def test_creates_all_system_tables(storage):
-    """7 张系统表必须全部建出。"""
+    """8 张系统表必须全部建出。"""
     tables = set(_list_tables(storage))
-    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue"}
+    expected = {"config", "queue", "requests", "seen_urls", "proxy_pool", "captcha_log", "image_queue", "templates"}
     missing = expected - tables
     assert not missing, f"缺少系统表: {missing}"
     # 不应有额外的表
