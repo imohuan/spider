@@ -231,6 +231,12 @@ class ShengyiZRDetailParser(SimplePageParser):
         for img_url in unique_imgs:
             self.storage.enqueue_image(img_url, max_retry=3)
 
+        self.storage.enqueue_workflow("example", {
+            "table": self.table_name,
+            "url": url,
+            "fields": sorted(row.keys()),
+        })
+
         return [row]
 
 
