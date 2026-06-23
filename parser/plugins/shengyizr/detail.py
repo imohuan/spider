@@ -31,8 +31,8 @@ class ShengyiZRDetailParser(SimplePageParser):
     table_schema = """
         CREATE TABLE shengyizr_detail (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            url             TEXT UNIQUE,
-            info_id         TEXT,
+            info_id         TEXT UNIQUE,
+            url             TEXT,
             house_id        TEXT,
             title           TEXT,
             price_num       TEXT,
@@ -234,8 +234,9 @@ class ShengyiZRDetailParser(SimplePageParser):
         self.storage.enqueue_workflow("58-ai-check", {
             "table": self.table_name,
             "url": url,
+            "info_id": row["info_id"],
             "row": row,
-        }, ref_id=getattr(self, '_queue_id', None))
+        }, ref_id=row["info_id"])
 
         return [row]
 

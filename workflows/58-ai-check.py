@@ -259,6 +259,7 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
         "status": "ok",
         "result": eval_result,
         "meta": {
+            "info_id": params.get("info_id"),
             "url": params.get("url"),
             "title": row.get("title") if row else None,
             "total_images": len(image_urls),

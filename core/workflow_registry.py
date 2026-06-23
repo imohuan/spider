@@ -115,7 +115,7 @@ def get_registry() -> WorkflowRegistry:
     return _registry
 
 
-def enqueue_workflow(workflow_name: str, params: dict | None = None, ref_id: int | None = None) -> int:
+def enqueue_workflow(workflow_name: str, params: dict | None = None, ref_id: str | None = None) -> int:
     """将工作流任务入队，返回 task_id。
 
     供非 Parser 代码调用::

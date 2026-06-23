@@ -181,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_cookie_presets_domain ON cookie_presets(domain);
 CREATE TABLE IF NOT EXISTS workflow_queue (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_name   TEXT NOT NULL,
-    ref_id          INTEGER,
+    ref_id          TEXT,
     params          TEXT,
     status          TEXT DEFAULT 'pending',
     result          TEXT,
@@ -295,7 +295,7 @@ class Storage:
 
         # workflow_queue 表迁移
         workflow_columns = [
-            ("ref_id", "INTEGER"),
+            ("ref_id", "TEXT"),
         ]
         with self._lock:
             existing = {
@@ -694,7 +694,7 @@ class Storage:
 
     # ---------------- 工作流队列 ----------------
 
-    def enqueue_workflow(self, workflow_name: str, params: dict | None = None, ref_id: int | None = None) -> int:
+    def enqueue_workflow(self, workflow_name: str, params: dict | None = None, ref_id: str | None = None) -> int:
         """将工作流任务入队，返回 task_id。
 
         供 Parser 代码调用::
