@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { shengyiApi } from '@/api'
 import { useNotify } from '@/components/ui'
 
@@ -139,6 +139,15 @@ const firstPhoto = (photos: string) => {
   return photos.split('|').find((u: string) => u.startsWith('http')) || ''
 }
 
+const allPhotos = (photos: string) => {
+  if (!photos) return []
+  return photos.split('|').filter((u: string) => u.startsWith('http'))
+}
+
+const selectedPhotoIndex = ref(0)
+
+watch(selectedItem, () => { selectedPhotoIndex.value = 0 })
+
 const formatPrice = (item: any) => {
   const num = item.price_num || ''
   const unit = item.price_unit || ''
@@ -163,93 +172,93 @@ onMounted(async () => {
           <span v-if="total" class="text-xs text-secondary">共 {{ total }} 条</span>
         </div>
         <div class="flex items-center gap-ax-xs">
-          <AxButton variant="ghost" size="sm" icon="refresh" @click="fetchData" :loading="loading" />
-          <AxButton variant="ghost" size="sm" icon="filter_alt_off" @click="resetFilters">重置</AxButton>
+          <AxButton variant="ghost" size="lg" icon="refresh" @click="fetchData" :loading="loading" />
+          <AxButton variant="ghost" size="lg" icon="filter_alt_off" @click="resetFilters">重置</AxButton>
         </div>
       </div>
 
       <!-- 筛选区 -->
-      <div class="space-y-ax-xs">
-        <!-- 第一行：评级按钮组 + 区域下拉 + 经营状态下拉 -->
-        <div class="flex items-center gap-ax-xs flex-wrap">
-          <span class="text-xs text-secondary flex-shrink-0">评级</span>
-          <div class="flex gap-0.5">
-            <AxButton
-              v-for="level in filterOptions.levels"
-              :key="level"
-              variant="ghost"
-              size="sm"
-              :class="selectedLevels.includes(level)
-                ? '!bg-primary/10 !text-primary !font-semibold'
-                : 'text-secondary'"
-              @click="toggleLevel(level)"
-            >
-              {{ level }}
-            </AxButton>
-          </div>
-
-          <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">区域</span>
-          <AxSelect
-            v-model="district"
-            :options="districtOptions"
-            placeholder="全部区域"
-            size="sm"
-            trigger-width="120px"
-          />
-
-          <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">状态</span>
-          <AxSelect
-            v-model="bizStatus"
-            :options="bizStatusOptions"
-            placeholder="经营状态"
-            size="sm"
-            trigger-width="110px"
-          />
-
-          <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">类型</span>
-          <AxSelect
-            v-model="bizType"
-            :options="bizTypeOptions"
-            placeholder="经营类型"
-            size="sm"
-            trigger-width="120px"
-          />
-        </div>
-
-        <!-- 第二行：搜索输入 + 评分范围 + 搜索按钮 -->
-        <div class="flex items-center gap-ax-xs">
-          <div class="flex-1 max-w-sm">
-            <AxInput
-              v-model="search"
-              placeholder="搜索标题、地址、描述..."
-              size="sm"
-              @keyup.enter="onSearch"
-            >
-              <template #prefix>
-                <span class="material-symbols-outlined text-[16px] text-secondary">search</span>
-              </template>
-            </AxInput>
-          </div>
-
-          <span class="text-xs text-secondary flex-shrink-0">评分</span>
-          <AxInput
-            v-model="scoreMin"
-            placeholder="最低"
-            size="sm"
-            class="!w-16"
-          />
-          <span class="text-xs text-secondary">-</span>
-          <AxInput
-            v-model="scoreMax"
-            placeholder="最高"
-            size="sm"
-            class="!w-16"
-          />
-
-          <AxButton variant="primary" size="sm" icon="search" @click="onSearch" :loading="loading">
-            搜索
+      <div class="flex items-center gap-ax-xs flex-wrap">
+        <!-- 评级按钮组 -->
+        <span class="text-xs text-secondary flex-shrink-0">评级</span>
+        <div class="flex gap-0.5">
+          <AxButton
+            v-for="level in filterOptions.levels"
+            :key="level"
+            variant="ghost"
+            size="lg"
+            :class="selectedLevels.includes(level)
+              ? '!bg-primary/10 !text-primary !font-semibold'
+              : 'text-secondary'"
+            @click="toggleLevel(level)"
+          >
+            {{ level }}
           </AxButton>
         </div>
+
+        <!-- 区域下拉 -->
+        <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">区域</span>
+        <AxSelect
+          v-model="district"
+          :options="districtOptions"
+          placeholder="全部区域"
+          size="lg"
+          trigger-width="140px"
+        />
+
+        <!-- 经营状态 -->
+        <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">状态</span>
+        <AxSelect
+          v-model="bizStatus"
+          :options="bizStatusOptions"
+          placeholder="经营状态"
+          size="lg"
+          trigger-width="130px"
+        />
+
+        <!-- 经营类型 -->
+        <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">类型</span>
+        <AxSelect
+          v-model="bizType"
+          :options="bizTypeOptions"
+          placeholder="经营类型"
+          size="lg"
+          trigger-width="140px"
+        />
+
+        <!-- 搜索输入 -->
+        <div class="ml-2 w-52">
+          <AxInput
+            v-model="search"
+            placeholder="搜索标题、地址、描述..."
+            size="lg"
+            @keyup.enter="onSearch"
+          >
+            <template #prefix>
+              <span class="material-symbols-outlined text-[16px] text-secondary">search</span>
+            </template>
+          </AxInput>
+        </div>
+
+        <!-- 评分范围 -->
+        <span class="text-xs text-secondary flex-shrink-0">评分</span>
+        <AxInput
+          v-model="scoreMin"
+          placeholder="最低"
+          size="lg"
+          class="!w-20"
+        />
+        <span class="text-xs text-secondary">-</span>
+        <AxInput
+          v-model="scoreMax"
+          placeholder="最高"
+          size="lg"
+          class="!w-20"
+        />
+        <!-- 搜索按钮 -->
+        <AxButton variant="primary" size="lg" icon="search" @click="onSearch" :loading="loading">
+          搜索
+        </AxButton>
       </div>
     </div>
 
@@ -311,20 +320,7 @@ onMounted(async () => {
                 <div class="flex items-center justify-between mt-ax-xs">
                   <span class="text-sm font-semibold text-primary">{{ formatPrice(item) }}</span>
                   <span v-if="item.ai?.level" class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" :class="levelColors[item.ai.level] || 'bg-gray-100 text-gray-600'">
-                    {{ item.ai.level }}
-                  </span>
-                </div>
-
-                <div v-if="item.ai?.score" class="flex items-center gap-ax-xs mt-0.5">
-                  <div class="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all"
-                      :class="scoreColor(item.ai.score).replace('text-', 'bg-')"
-                      :style="{ width: `${item.ai.score * 10}%` }"
-                    />
-                  </div>
-                  <span class="text-xs font-mono font-semibold" :class="scoreColor(item.ai.score)">
-                    {{ item.ai.score }}
+                    {{ item.ai.level }} {{ item.ai?.score }}
                   </span>
                 </div>
               </div>
@@ -351,7 +347,7 @@ onMounted(async () => {
 
       <!-- ── 右侧详情面板 ── -->
       <div v-if="selectedItem"
-        class="w-[420px] flex-shrink-0 border-l border-outline-variant bg-surface-container-lowest overflow-y-auto flex flex-col">
+        class="w-1/2 flex-shrink-0 border-l border-outline-variant bg-surface-container-lowest overflow-y-auto flex flex-col">
         <!-- 标题栏 -->
         <div class="flex-shrink-0 flex items-center justify-between px-4 py-ax-sm border-b border-outline-variant">
           <span class="text-sm font-semibold">详情</span>
@@ -359,6 +355,59 @@ onMounted(async () => {
         </div>
 
         <div class="flex-1 overflow-y-auto p-4 space-y-ax-md">
+          <!-- ── 图片轮播 ── -->
+          <div v-if="allPhotos(selectedItem.photos).length" class="space-y-ax-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-secondary uppercase tracking-wide">房源图片</span>
+              <span class="text-[10px] text-secondary">{{ selectedPhotoIndex + 1 }} / {{ allPhotos(selectedItem.photos).length }}</span>
+            </div>
+            <div class="relative aspect-[4/3] rounded-lg overflow-hidden bg-surface-container-high">
+              <img
+                :src="`/api/images/proxy?url=${encodeURIComponent(allPhotos(selectedItem.photos)[selectedPhotoIndex])}`"
+                class="w-full h-full object-contain"
+                loading="lazy"
+              />
+              <div class="absolute inset-x-0 bottom-2 flex justify-center gap-ax-xs">
+                <button
+                  v-for="(_, i) in allPhotos(selectedItem.photos)"
+                  :key="i"
+                  class="w-2 h-2 rounded-full transition-all"
+                  :class="i === selectedPhotoIndex ? 'bg-primary scale-110' : 'bg-white/60 hover:bg-white/80'"
+                  @click="selectedPhotoIndex = i"
+                />
+              </div>
+              <button
+                v-if="allPhotos(selectedItem.photos).length > 1"
+                class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors"
+                @click="selectedPhotoIndex = (selectedPhotoIndex - 1 + allPhotos(selectedItem.photos).length) % allPhotos(selectedItem.photos).length"
+              >
+                <span class="material-symbols-outlined text-[18px]">chevron_left</span>
+              </button>
+              <button
+                v-if="allPhotos(selectedItem.photos).length > 1"
+                class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors"
+                @click="selectedPhotoIndex = (selectedPhotoIndex + 1) % allPhotos(selectedItem.photos).length"
+              >
+                <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+              </button>
+            </div>
+            <!-- 缩略图条 -->
+            <div v-if="allPhotos(selectedItem.photos).length > 1" class="flex gap-ax-xs overflow-x-auto">
+              <div
+                v-for="(photo, i) in allPhotos(selectedItem.photos)"
+                :key="i"
+                class="w-14 h-14 flex-shrink-0 rounded-md overflow-hidden cursor-pointer border-2 transition-colors"
+                :class="i === selectedPhotoIndex ? 'border-primary' : 'border-transparent hover:border-outline-secondary'"
+                @click="selectedPhotoIndex = i"
+              >
+                <img
+                  :src="`/api/images/proxy?url=${encodeURIComponent(photo)}`"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
           <!-- 基本信息 -->
           <div>
             <div class="text-xs text-secondary mb-ax-xs uppercase tracking-wide">基本信息</div>
@@ -546,7 +595,7 @@ onMounted(async () => {
 
       <!-- 未选择时的占位 -->
       <div v-else
-        class="w-[420px] flex-shrink-0 border-l border-outline-variant bg-surface-container-lowest flex items-center justify-center">
+        class="w-1/2 flex-shrink-0 border-l border-outline-variant bg-surface-container-lowest flex items-center justify-center">
         <div class="text-center space-y-ax-sm text-secondary">
           <span class="material-symbols-outlined text-4xl">touch_app</span>
           <p class="text-sm">点击左侧卡片查看详情</p>
