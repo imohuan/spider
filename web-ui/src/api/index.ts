@@ -77,6 +77,23 @@ export const parsersApi = {
   test: (name: string, url: string) => api.post(`/parsers/${name}/test`, { url }),
 }
 
+export const shengyiApi = {
+  list: (p: {
+    page?: number
+    size?: number
+    search?: string
+    district?: string
+    biz_status?: string
+    biz_type?: string
+    level?: string
+    score_min?: number
+    score_max?: number
+    status?: string
+  }) => api.get('/shengyi/list', p),
+  filters: () => api.get('/shengyi/filters'),
+  detail: (infoId: string) => api.get(`/shengyi/detail/${infoId}`),
+}
+
 export const cookiePresetsApi = {
   list: () => api.get('/cookie-presets'),
   get: (id: number) => api.get(`/cookie-presets/${id}`),

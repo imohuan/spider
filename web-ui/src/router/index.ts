@@ -25,6 +25,13 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'amap', component: () => import('@/views/AmapNearbySearchView.vue'), meta: { title: '地图搜索', desc: '高德地图 · 附近 POI 搜索' } },
     ],
   },
+  {
+    path: '/shengyi-ai',
+    component: () => import('@/layouts/BlankLayout.vue'),
+    children: [
+      { path: '', name: 'shengyi-ai', component: () => import('@/views/ShengyiAIView.vue'), meta: { title: '生意转让AI评估', desc: 'shengyizr_detail + 58-ai-check · AI 评估看板' } },
+    ],
+  },
 ]
 
 export const router = createRouter({ history: createWebHashHistory(), routes })

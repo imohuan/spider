@@ -181,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_cookie_presets_domain ON cookie_presets(domain);
 CREATE TABLE IF NOT EXISTS workflow_queue (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     workflow_name   TEXT NOT NULL,
-    ref_id          TEXT,
+    ref_id          TEXT UNIQUE,
     params          TEXT,
     status          TEXT DEFAULT 'pending',
     result          TEXT,

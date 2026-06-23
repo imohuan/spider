@@ -18,6 +18,7 @@ const groups = [
       { id: 'data', name: '数据浏览', icon: 'table_chart', path: '/data' },
       { id: 'proxy', name: 'IP 池', icon: 'vpn_lock', path: '/proxy' },
       { id: 'amap', name: '地图搜索', icon: 'map', path: '/amap' },
+      { id: 'shengyi-ai', name: '生意转让', icon: 'psychology', path: '/shengyi-ai' },
     ],
   },
   {
