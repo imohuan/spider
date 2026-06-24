@@ -112,6 +112,17 @@ def _build_where(params: dict) -> tuple[str, list]:
         conditions.append("w.status = ?")
         args.append(wf_status)
 
+    # 自定义标签筛选（多标签 OR 逻辑: 满足任一标签即匹配）
+    tag_raw = params.get("tag", "").strip()
+    if tag_raw:
+        tags = [t.strip() for t in tag_raw.split(",") if t.strip()]
+        if tags:
+            placeholders = ",".join(["?"] * len(tags))
+            conditions.append(
+                f"d.info_id IN (SELECT info_id FROM shengyi_tags WHERE tag IN ({placeholders}))"
+            )
+            args.extend(tags)
+
     where = ""
     if conditions:
         where = "WHERE " + " AND ".join(conditions)
@@ -132,9 +143,30 @@ def list_items():
         level=潜力极高,值得关注  (逗号分隔多选)
         score_min=5   score_max=10
         status=done   (workflow 状态)
+        tag=靠谱,急转    (自定义标签筛选, 逗号分隔, OR 逻辑)
+        sort_by=score  (排序字段: score / id; 默认 id)
+        sort_order=asc (asc / desc; 默认 desc)
     """
     page = request.args.get("page", 1, type=int)
     size = min(request.args.get("size", 20, type=int), 100)
+    sort_by = request.args.get("sort_by", "id").strip()
+    sort_order = request.args.get("sort_order", "desc").strip()
+
+    # 排序白名单校验
+    ALLOWED_SORT = {"id", "score"}
+    if sort_by not in ALLOWED_SORT:
+        sort_by = "id"
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+
+    # 构造 ORDER BY
+    if sort_by == "score":
+        order_clause = (
+            f"CAST(json_extract(w.result, '$.result.score') AS REAL) {sort_order}, "
+            "d.id DESC"
+        )
+    else:
+        order_clause = f"d.id {sort_order.upper()}"
 
     logger.info(f"GET /api/shengyi/list page={page} size={size}")
 
@@ -171,7 +203,7 @@ def list_items():
             LEFT JOIN workflow_queue w
                 ON d.info_id = w.ref_id AND w.workflow_name = '58-ai-check'
             {where}
-            ORDER BY d.id DESC
+            ORDER BY {order_clause}
             LIMIT ? OFFSET ?
         """
         offset = (page - 1) * size
@@ -181,6 +213,7 @@ def list_items():
 
         # ── 组装响应 ──
         items = []
+        info_ids = []
         for r in rows:
             item = dict(r)
             # 解析 AI 结果
@@ -192,6 +225,23 @@ def list_items():
             if nearby:
                 item["nearby_pois"] = nearby
             items.append(item)
+            info_ids.append(item["info_id"])
+
+        # ── 批量加载自定义标签 ──
+        if info_ids:
+            placeholders = ",".join(["?"] * len(info_ids))
+            tag_rows = s.execute(
+                f"SELECT info_id, tag FROM shengyi_tags WHERE info_id IN ({placeholders}) ORDER BY id",
+                tuple(info_ids),
+                fetch="all",
+            )
+            tag_map: dict[str, list[str]] = {}
+            for tr in tag_rows:
+                tag_map.setdefault(tr["info_id"], []).append(tr["tag"])
+            for item in items:
+                custom_tags = tag_map.get(item["info_id"], [])
+                if custom_tags:
+                    item["custom_tags"] = custom_tags
 
         logger.info(
             f"GET /api/shengyi/list → {len(items)} 行 / {total} 总行"
@@ -276,6 +326,15 @@ def get_detail(info_id: str):
         if nearby:
             item["nearby_pois"] = nearby
 
+        # 加载自定义标签
+        tag_rows = s.execute(
+            "SELECT tag FROM shengyi_tags WHERE info_id = ? ORDER BY id",
+            (info_id,), fetch="all",
+        )
+        custom_tags = [tr["tag"] for tr in tag_rows]
+        if custom_tags:
+            item["custom_tags"] = custom_tags
+
         return jsonify(item)
 
     except Exception:
@@ -318,5 +377,96 @@ def refetch_url(info_id: str):
     except Exception:
         logger.error(
             f"POST /api/shengyi/refetch/{info_id} 失败:\n{traceback.format_exc()}"
+        )
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# ── 自定义标签管理 ──
+
+@bp.route("/tags")
+def list_tags():
+    """获取所有自定义标签（去重）。"""
+    logger.info("GET /api/shengyi/tags")
+    try:
+        s = Storage()
+        rows = s.execute(
+            "SELECT DISTINCT tag FROM shengyi_tags ORDER BY tag",
+            fetch="all",
+        )
+        return jsonify([r["tag"] for r in rows])
+    except Exception:
+        logger.error(f"GET /api/shengyi/tags 失败:\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@bp.route("/<info_id>/tags", methods=["GET"])
+def get_item_tags(info_id: str):
+    """获取指定 item 的自定义标签。"""
+    logger.info(f"GET /api/shengyi/{info_id}/tags")
+    try:
+        s = Storage()
+        rows = s.execute(
+            "SELECT tag FROM shengyi_tags WHERE info_id = ? ORDER BY id",
+            (info_id,), fetch="all",
+        )
+        return jsonify([r["tag"] for r in rows])
+    except Exception:
+        logger.error(f"GET /api/shengyi/{info_id}/tags 失败:\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@bp.route("/<info_id>/tags", methods=["POST"])
+def add_item_tag(info_id: str):
+    """添加标签。 body: {"tag": "标签名"}"""
+    logger.info(f"POST /api/shengyi/{info_id}/tags")
+    try:
+        body = request.get_json(silent=True) or {}
+        tag = (body.get("tag") or "").strip()
+        if not tag:
+            return jsonify({"error": "tag is required"}), 400
+        if len(tag) > 30:
+            return jsonify({"error": "tag too long (max 30)"}), 400
+
+        s = Storage()
+        try:
+            s.execute(
+                "INSERT INTO shengyi_tags (info_id, tag) VALUES (?, ?)",
+                (info_id, tag),
+            )
+        except Exception:
+            # 重复标签，忽略
+            pass
+
+        logger.info(f"tag added: {info_id} ← {tag}")
+        return jsonify({"ok": True, "tag": tag})
+    except Exception:
+        logger.error(f"POST /api/shengyi/{info_id}/tags 失败:\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@bp.route("/<info_id>/tags", methods=["DELETE"])
+def remove_item_tag(info_id: str):
+    """删除标签。 body: {"tag": "标签名"}  或 query ?tag=标签名"""
+    logger.info(f"DELETE /api/shengyi/{info_id}/tags")
+    try:
+        tag = ""
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            tag = (body.get("tag") or "").strip()
+        if not tag:
+            tag = (request.args.get("tag") or "").strip()
+        if not tag:
+            return jsonify({"error": "tag is required"}), 400
+
+        s = Storage()
+        s.execute(
+            "DELETE FROM shengyi_tags WHERE info_id = ? AND tag = ?",
+            (info_id, tag),
+        )
+        logger.info(f"tag removed: {info_id} × {tag}")
+        return jsonify({"ok": True, "tag": tag})
+    except Exception:
+        logger.error(
+            f"DELETE /api/shengyi/{info_id}/tags 失败:\n{traceback.format_exc()}"
         )
         return jsonify({"error": "Internal server error"}), 500

@@ -77,13 +77,17 @@ def create_task():
     请求体 JSON:
         url:          string (必填) — 目标 URL
         parser_name:  string (可选) — Parser 名称，None 时自动匹配
-        fetch_mode:   string (可选) — "browser" / "http"，默认 "browser"
+        fetch_mode:   string (可选) — "browser" / "http" / "raw"，默认 "browser"
         request_config: dict (可选) — 任务级请求参数（method/headers/cookies 等）
+        html:         string (可选) — 直接传入 HTML 文本，跳过抓取。
+                      传入后 fetch_mode 自动设为 "raw"，HTML 存入 request_config.html。
     返回:
         {ok: true, queue_id: int}
     """
     data = request.get_json(silent=True) or {}
     url = (data.get('url', '') or '').strip()
+    html_text = (data.get('html', '') or '').strip()
+    
     if not url:
         return jsonify({'ok': False, 'error': 'url is required'}), 400
     
@@ -91,8 +95,16 @@ def create_task():
     fetch_mode = data.get('fetch_mode') or 'browser'
     request_config = data.get('request_config') or None
     
-    # Cookie 预设自动匹配（不覆盖前端显式传入的 cookies）
-    if not request_config or 'cookies' not in request_config:
+    # raw 模式：传入 html 则自动切换，跳过抓取
+    raw_mode = False
+    if html_text:
+        fetch_mode = 'raw'
+        raw_mode = True
+        request_config = request_config or {}
+        request_config['html'] = html_text
+    
+    # Cookie 预设自动匹配（非 raw 模式，不覆盖前端显式传入的 cookies）
+    if not raw_mode and (not request_config or 'cookies' not in request_config):
         s = Storage()
         matched = s.match_cookie_preset(url)
         if matched is not None:
@@ -118,6 +130,7 @@ def create_task():
         'ok': True,
         'queue_id': queue_id,
         'parser': resolved_parser or 'auto-detect',
+        'fetch_mode': fetch_mode,
     })
 
 @bp.route('/retry-blocked', methods=['POST'])
