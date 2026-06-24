@@ -102,3 +102,13 @@ export const cookiePresetsApi = {
   delete: (id: number) => api.del(`/cookie-presets/${id}`),
   toggle: (id: number) => api.post(`/cookie-presets/${id}/toggle`),
 }
+
+export const workflowsApi = {
+  list: () => api.get('/workflows'),
+  run: (payload: { workflow_name: string; params?: Record<string, any>; ref_id?: string }) =>
+    api.post('/workflows/run', payload),
+  tasks: (p?: { status?: string; workflow_name?: string; limit?: number }) =>
+    api.get('/workflows/tasks', p),
+  getTask: (id: number) => api.get(`/workflows/tasks/${id}`),
+  requeue: (id: number) => api.post(`/workflows/tasks/${id}/requeue`),
+}

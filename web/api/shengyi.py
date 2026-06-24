@@ -36,6 +36,19 @@ def _parse_ai_result(result_json: str | None) -> dict | None:
     }
 
 
+def _parse_nearby_pois(result_json: str | None) -> list:
+    """从 workflow_queue.result JSON 提取 nearby_pois 字段。"""
+    if not result_json:
+        return []
+    try:
+        data = json.loads(result_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return data.get("nearby_pois") or []
+
+
 def _build_where(params: dict) -> tuple[str, list]:
     """构建 WHERE 子句和参数列表。"""
     conditions: list[str] = []
@@ -171,9 +184,13 @@ def list_items():
         for r in rows:
             item = dict(r)
             # 解析 AI 结果
-            ai = _parse_ai_result(item.pop("ai_result", None))
+            ai_result_raw = item.pop("ai_result", None)
+            ai = _parse_ai_result(ai_result_raw)
             if ai:
                 item["ai"] = ai
+            nearby = _parse_nearby_pois(ai_result_raw)
+            if nearby:
+                item["nearby_pois"] = nearby
             items.append(item)
 
         logger.info(
@@ -251,9 +268,13 @@ def get_detail(info_id: str):
             return jsonify({"error": "Not found"}), 404
 
         item = dict(row)
-        ai = _parse_ai_result(item.pop("ai_result", None))
+        ai_result_raw = item.pop("ai_result", None)
+        ai = _parse_ai_result(ai_result_raw)
         if ai:
             item["ai"] = ai
+        nearby = _parse_nearby_pois(ai_result_raw)
+        if nearby:
+            item["nearby_pois"] = nearby
 
         return jsonify(item)
 

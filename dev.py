@@ -18,7 +18,6 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 import time
 
 import config
@@ -164,20 +163,20 @@ app.config["CRAWLER_COMPONENTS"] = {
 }
 
 # 注入 Scheduler 引用给爬虫控制 API
-from web.api.crawler_control import init_scheduler
+from web.api.crawler_control import init_scheduler, init_components
+
+# 开发模式参数透传（_rebuild_crawler 重建时用）
+app.config["CRAWLER_COMPONENTS"]["_headless"] = False
+app.config["CRAWLER_COMPONENTS"]["_channel"] = None
+app.config["CRAWLER_COMPONENTS"]["state_machine"] = state_machine
+
 init_scheduler(scheduler)
+init_components(app.config["CRAWLER_COMPONENTS"])
 
 # 开发模式：默认暂停状态，等用户从 UI 点击"启动"
 # scheduler.pause()
 
-def _run_scheduler() -> None:
-    """后台运行爬虫调度器主循环。"""
-    logger.info("爬虫调度器后台线程启动")
-    scheduler.run()
-
-scheduler_thread = threading.Thread(target=_run_scheduler, daemon=True)
-# 开发模式：不自动启动爬虫，等用户从 UI 手动触发
-# scheduler_thread.start()
+# 开发模式：爬虫不自动启动，调度线程由 /api/crawler/start 端点按需创建
 
 # 图片下载队列 Worker（独立线程 + 专用事件循环，http/browser 模式都能消费）
 _img_worker, _img_loop, _img_thread = start_image_worker(
@@ -214,7 +213,6 @@ def _shutdown(sig=None, frame=None) -> None:
     logger.info("正在关闭...")
     scheduler.stop()
     workflow_scheduler.stop()
-    # 停止图片队列 Worker
     stop_image_worker(_img_worker, _img_loop, _img_thread, logger)
     try:
         fe_proc.terminate()

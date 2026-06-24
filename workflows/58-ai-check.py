@@ -1,4 +1,4 @@
-"""58 厨具商家 AI 评估 workflow — 图片下载 → 压缩 → 合并宫格 → AI 视觉分析。
+"""58 厨具商家 AI 评估 workflow — 图片下载 → 压缩 → 合并宫格 → AI 视觉分析 → 高德周边搜索。
 
 功能链路：
   1. 从 Parser row（shengyizr_detail）自动提取 photos + 商家字段
@@ -7,6 +7,7 @@
   4. 多图合并宫格图（自适应行列数）
   5. base64 编码 → 调用 core.ai.AIClient 做视觉评估
   6. 返回结构化 JSON（评分/评级/维度详评/收购建议）
+  7. 高德地图附近搜索：地址解析 → 周边餐饮/商场 POI，写入 nearby_pois
 
 调用方式::
 
@@ -29,6 +30,8 @@ import json
 import re
 from typing import Any
 
+import httpx
+
 from core.ai import AIClient
 from core.image_utils import (
     DEFAULT_MAX_SIZE,
@@ -42,6 +45,13 @@ from core.image_utils import (
 from core.logger import get_logger
 
 logger = get_logger("workflow.58-ai-check")
+
+# 高德周边搜索配置
+_AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
+_AMAP_AROUND_URL = "https://restapi.amap.com/v3/place/around"
+_NEARBY_KEYWORDS = "餐饮|餐厅|厨具|商场|超市"
+_NEARBY_RADIUS = 1000   # 搜索半径（米）
+_NEARBY_LIMIT = 20      # 最多返回 POI 数量
 
 # ═══════════════════════════════════════════════════════════════════
 # 常量
@@ -254,10 +264,28 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
             "duration_ms": duration_ms,
         }
 
-    # ── 9. 组装最终结果 ──
+    # ── 9. 高德附近搜索 ──
+    nearby_pois: list[dict] = []
+    amap_error: str = ""
+    if row and storage:
+        try:
+            from core.config_manager import ConfigManager
+            cfg = ConfigManager(storage)
+            amap_webapi_key = cfg.get("amap_webapi_key", "")
+            if amap_webapi_key:
+                nearby_pois, amap_error = await _search_nearby(row, amap_webapi_key)
+            else:
+                amap_error = "未配置 amap_webapi_key"
+        except Exception as e:
+            amap_error = f"周边搜索异常: {e}"
+            logger.warning(amap_error)
+
+    # ── 10. 组装最终结果 ──
     return {
         "status": "ok",
         "result": eval_result,
+        "nearby_pois": nearby_pois,
+        "nearby_error": amap_error if amap_error else None,
         "meta": {
             "info_id": params.get("info_id"),
             "url": params.get("url"),
@@ -442,3 +470,120 @@ def _extract_json(text: str) -> dict[str, Any] | None:
             pass
 
     return None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 高德地图附近搜索
+# ═══════════════════════════════════════════════════════════════════
+
+async def _geocode_address(address: str, key: str) -> tuple[float, float] | None:
+    """调用高德 Geocode API，将地址字符串解析为经纬度坐标。
+
+    :returns: (lng, lat) 或 None（解析失败）
+    """
+    if not address.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                _AMAP_GEOCODE_URL,
+                params={"address": address, "key": key, "output": "JSON"},
+            )
+            data = resp.json()
+    except Exception as e:
+        logger.warning(f"Geocode 请求失败: {e}")
+        return None
+
+    if data.get("status") != "1" or not data.get("geocodes"):
+        logger.warning(f"Geocode 解析失败 address={address!r}: {data.get('info')}")
+        return None
+
+    loc_str: str = data["geocodes"][0].get("location", "")
+    if not loc_str:
+        return None
+    try:
+        lng_s, lat_s = loc_str.split(",")
+        return float(lng_s), float(lat_s)
+    except ValueError:
+        return None
+
+
+async def _search_nearby(row: dict, key: str) -> tuple[list[dict], str]:
+    """用商家地址查询高德附近 POI。
+
+    先从 row 拼出尽量完整的地址，Geocode 解析坐标，再调 /v3/place/around。
+
+    :returns: (pois_list, error_msg)。
+              pois_list 每项包含 id/name/type/address/tel/distance/rating/cost/location。
+              error_msg 非空表示发生了可容忍错误（结果可为空列表）。
+    """
+    # 拼地址：优先用 district + block + address，如果都没有就跳过
+    parts = [
+        row.get("district", "").strip(),
+        row.get("block", "").strip(),
+        row.get("address", "").strip(),
+    ]
+    full_address = " ".join(p for p in parts if p)
+    if not full_address:
+        return [], "商家地址为空，跳过周边搜索"
+
+    coords = await _geocode_address(full_address, key)
+    if coords is None:
+        return [], f"地址解析失败: {full_address!r}"
+
+    lng, lat = coords
+    location_str = f"{lng},{lat}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                _AMAP_AROUND_URL,
+                params={
+                    "key": key,
+                    "location": location_str,
+                    "keywords": _NEARBY_KEYWORDS,
+                    "radius": str(_NEARBY_RADIUS),
+                    "sortrule": "distance",
+                    "offset": str(_NEARBY_LIMIT),
+                    "page": "1",
+                    "extensions": "all",
+                    "output": "JSON",
+                },
+            )
+            data = resp.json()
+    except Exception as e:
+        return [], f"周边搜索请求失败: {e}"
+
+    if data.get("status") != "1":
+        return [], f"周边搜索 API 错误: {data.get('info')}"
+
+    raw_pois: list[dict] = data.get("pois", []) or []
+    pois: list[dict] = []
+    for p in raw_pois:
+        loc = p.get("location", "")
+        loc_dict: dict = {}
+        if loc and "," in loc:
+            try:
+                plng, plat = loc.split(",")
+                loc_dict = {"lng": float(plng), "lat": float(plat)}
+            except ValueError:
+                pass
+        biz = p.get("biz_ext") or {}
+        pois.append({
+            "id": p.get("id", ""),
+            "name": p.get("name", ""),
+            "type": p.get("type", ""),
+            "address": p.get("address", ""),
+            "tel": p.get("tel") or biz.get("tel", ""),
+            "distance": int(p.get("distance") or 0),
+            "rating": biz.get("rating", ""),
+            "cost": biz.get("cost", ""),
+            "location": loc_dict,
+            "photos": [ph.get("url", "") for ph in (p.get("photos") or [])[:3]],
+        })
+
+    logger.info(
+        f"周边搜索完成 addr={full_address!r} coords=({lng},{lat}) "
+        f"找到 {len(pois)} 个 POI"
+    )
+    return pois, ""

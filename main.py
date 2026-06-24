@@ -255,9 +255,13 @@ def main(argv: list[str] | None = None) -> int:
 
         web_app = create_app(static_folder='web/static')
         web_app.config['CRAWLER_COMPONENTS'] = components
-        from web.api.crawler_control import init_scheduler, init_browser
+        from web.api.crawler_control import init_scheduler, init_components
         init_scheduler(scheduler)
-        init_browser(browser, cdp_browser)
+        # 透传完整组件供 /start 重建用
+        components["state_machine"] = state_machine
+        components["_headless"] = args.headless if hasattr(args, "headless") else True
+        components["_channel"] = args.channel if hasattr(args, "channel") else None
+        init_components(components)
 
         # 挂 WebSocket 推送回调
         from web.socketio_handlers import push_workflow_task_update

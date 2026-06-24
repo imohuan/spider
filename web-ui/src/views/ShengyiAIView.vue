@@ -573,8 +573,54 @@ onMounted(async () => {
             </div>
           </div>
 
+          <!-- ════════ 周边商家 ════════ -->
+          <div
+            v-if="selectedItem.nearby_pois && selectedItem.nearby_pois.length"
+            class="border-t border-outline-variant pt-ax-md"
+          >
+            <div class="text-xs text-secondary mb-ax-sm uppercase tracking-wide flex items-center gap-ax-xs">
+              <span class="material-symbols-outlined text-[14px]">location_on</span>
+              周边商家（{{ selectedItem.nearby_pois.length }} 个，半径 1km）
+            </div>
+            <div class="space-y-ax-xs">
+              <div
+                v-for="(poi, idx) in selectedItem.nearby_pois"
+                :key="poi.id || idx"
+                class="flex items-start gap-ax-sm p-ax-xs rounded-lg bg-surface-container-high hover:bg-surface-container transition-colors"
+              >
+                <!-- 序号 -->
+                <div class="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {{ idx + 1 }}
+                </div>
+
+                <!-- 主信息 -->
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium truncate">{{ poi.name }}</div>
+                  <div class="text-[11px] text-secondary truncate mt-0.5">
+                    {{ (poi.type || '').split(';')[0].split('|')[0] }}
+                    <template v-if="poi.address">· {{ poi.address }}</template>
+                  </div>
+                  <div class="flex items-center gap-ax-sm mt-0.5">
+                    <span class="text-[11px] text-primary font-mono">{{ poi.distance }}m</span>
+                    <span v-if="poi.rating" class="text-[11px] text-amber-500">★ {{ poi.rating }}</span>
+                    <span v-if="poi.cost" class="text-[11px] text-secondary">¥{{ poi.cost }}</span>
+                    <span v-if="poi.tel" class="text-[11px] text-secondary">📞 {{ poi.tel }}</span>
+                  </div>
+                </div>
+
+                <!-- 首图 -->
+                <img
+                  v-if="poi.photos && poi.photos[0]"
+                  :src="poi.photos[0]"
+                  class="w-12 h-12 rounded-md object-cover flex-shrink-0 bg-surface-container"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- 无 AI 评估 -->
-          <div v-else class="border-t border-outline-variant pt-ax-md">
+          <div v-if="!selectedItem.ai" class="border-t border-outline-variant pt-ax-md">
             <div class="text-xs text-secondary mb-ax-sm uppercase tracking-wide">AI 评估</div>
             <div class="flex items-center gap-ax-sm text-sm text-secondary p-ax-sm rounded-lg bg-surface-container-high">
               <span class="material-symbols-outlined">hourglass_empty</span>

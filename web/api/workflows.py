@@ -168,3 +168,31 @@ def get_task(task_id: int):
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
     })
+
+
+@bp.route("/tasks/<int:task_id>/requeue", methods=["POST"])
+def requeue_task(task_id: int):
+    """将指定工作流任务重置为 pending，可重新被调度器执行。"""
+    storage = _get_storage()
+    if storage is None:
+        return jsonify({"error": "Storage not initialized"}), 500
+
+    row = storage.execute(
+        "SELECT id FROM workflow_queue WHERE id=?",
+        (task_id,),
+        fetch="one",
+    )
+    if row is None:
+        return jsonify({"error": "Task not found"}), 404
+
+    with storage.get_connection() as conn:
+        conn.execute(
+            "UPDATE workflow_queue "
+            "SET status='pending', result=NULL, error=NULL, "
+            "    started_at=NULL, finished_at=NULL "
+            "WHERE id=?",
+            (task_id,),
+        )
+
+    logger.info(f"POST /api/workflows/tasks/{task_id}/requeue → reset to pending")
+    return jsonify({"task_id": task_id, "status": "pending"})
