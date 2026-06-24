@@ -432,11 +432,13 @@ onMounted(async () => {
               <span v-if="item.area" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.area }}</span>
               <span v-if="item.property_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{
                 item.property_type
-                }}</span>
+              }}</span>
               <span v-if="item.biz_status" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_status
-                }}</span>
+              }}</span>
               <span v-if="item.biz_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_type
-                }}</span>
+              }}</span>
+              <span v-if="item?.nearby_pois?.length" class="px-1 py-0.5 bg-blue-600 text-white rounded">地图结果{{
+                item?.nearby_pois?.length}}</span>
               <span v-if="!item.ai" class="px-1 py-0.5 bg-amber-50 text-amber-600 rounded">
                 <span class="material-symbols-outlined text-[12px] align-text-bottom">pending</span>
                 待评估
@@ -571,7 +573,7 @@ onMounted(async () => {
                 <span class="text-secondary">区域</span>
                 <span>{{ [selectedItem.district, selectedItem.block, selectedItem.address].filter(Boolean).join(' ') ||
                   '-'
-                  }}</span>
+                }}</span>
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">楼层</span>
@@ -580,7 +582,7 @@ onMounted(async () => {
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">商铺类型</span>
                 <span>{{ [selectedItem.property_type, selectedItem.property_nature].filter(Boolean).join(' / ') || '-'
-                  }}</span>
+                }}</span>
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">经营状态</span>
