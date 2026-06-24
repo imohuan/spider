@@ -33,6 +33,12 @@ const bizType = ref('')
 const scoreMin = ref('')
 const scoreMax = ref('')
 const wfStatus = ref('')
+const tagSearch = ref<string[]>([])
+const sortBy = ref('id')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+
+// ── 全部标签 ──
+const allTags = ref<string[]>([])
 
 const toggleLevel = (level: string) => {
   const idx = selectedLevels.value.indexOf(level)
@@ -50,12 +56,22 @@ const page = ref(1)
 const size = ref(20)
 const loading = ref(false)
 
+// ── 卡片级 tag 输入状态 ──
+const showTagInput = ref<Record<string, boolean>>({})
+const tagInputValue = ref<Record<string, string>>({})
+
 // ── 选中详情 ──
 const selectedItem = ref<any>(null)
 
 const fetchFilters = async () => {
   try {
     filterOptions.value = await shengyiApi.filters()
+  } catch { /* ignore */ }
+}
+
+const fetchAllTags = async () => {
+  try {
+    allTags.value = await shengyiApi.allTags()
   } catch { /* ignore */ }
 }
 
@@ -69,6 +85,9 @@ const buildParams = () => {
   if (scoreMin.value.trim()) p.score_min = Number(scoreMin.value)
   if (scoreMax.value.trim()) p.score_max = Number(scoreMax.value)
   if (wfStatus.value) p.status = wfStatus.value
+  if (tagSearch.value.length) p.tag = tagSearch.value.join(',')
+  if (sortBy.value) p.sort_by = sortBy.value
+  if (sortOrder.value) p.sort_order = sortOrder.value
   return p
 }
 
@@ -115,6 +134,9 @@ const resetFilters = () => {
   scoreMin.value = ''
   scoreMax.value = ''
   wfStatus.value = ''
+  tagSearch.value = []
+  sortBy.value = 'id'
+  sortOrder.value = 'desc'
   page.value = 1
   selectedItem.value = null
   fetchData()
@@ -124,8 +146,8 @@ const resetFilters = () => {
 const levelColors: Record<string, string> = {
   '潜力极高': 'bg-emerald-100 text-emerald-700',
   '值得关注': 'bg-blue-100 text-blue-700',
-  '一般':     'bg-amber-100 text-amber-700',
-  '不推荐':   'bg-red-100 text-red-700',
+  '一般': 'bg-amber-100 text-amber-700',
+  '不推荐': 'bg-red-100 text-red-700',
 }
 
 const scoreColor = (score: number) => {
@@ -193,6 +215,54 @@ const handleRerun = async (item: any, e: Event) => {
   }
 }
 
+// ── 标签管理 ──
+const handleAddTag = async (item: any, e: Event) => {
+  e.stopPropagation()
+  const tag = (tagInputValue.value[item.info_id] || '').trim()
+  if (!tag) return
+  try {
+    await shengyiApi.addTag(item.info_id, tag)
+    if (!item.custom_tags) item.custom_tags = []
+    if (!item.custom_tags.includes(tag)) item.custom_tags.push(tag)
+    if (!allTags.value.includes(tag)) allTags.value.push(tag)
+    tagInputValue.value[item.info_id] = ''
+    showTagInput.value[item.info_id] = false
+    triggerNotify(`标签「${tag}」已添加`, 'success')
+  } catch (e: any) {
+    triggerNotify(e?.error || '添加失败', 'error')
+  }
+}
+
+const handleRemoveTag = async (item: any, tag: string, e: Event) => {
+  e.stopPropagation()
+  try {
+    await shengyiApi.removeTag(item.info_id, tag)
+    if (item.custom_tags) {
+      const idx = item.custom_tags.indexOf(tag)
+      if (idx >= 0) item.custom_tags.splice(idx, 1)
+    }
+    // 刷新全局标签列表
+    fetchAllTags()
+    triggerNotify(`标签「${tag}」已移除`, 'success')
+  } catch (e: any) {
+    triggerNotify(e?.error || '移除失败', 'error')
+  }
+}
+
+const toggleTagSearch = (tag: string) => {
+  const idx = tagSearch.value.indexOf(tag)
+  if (idx >= 0) {
+    tagSearch.value.splice(idx, 1)
+  } else {
+    tagSearch.value.push(tag)
+  }
+}
+
+const handleBlurTagInput = (infoId: string) => {
+  if (!tagInputValue.value[infoId]) {
+    showTagInput.value[infoId] = false
+  }
+}
 const formatPrice = (item: any) => {
   const num = item.price_num || ''
   const unit = item.price_unit || ''
@@ -201,6 +271,7 @@ const formatPrice = (item: any) => {
 
 onMounted(async () => {
   await fetchFilters()
+  await fetchAllTags()
   await fetchData()
 })
 </script>
@@ -227,58 +298,28 @@ onMounted(async () => {
         <!-- 评级按钮组 -->
         <span class="text-xs text-secondary flex-shrink-0">评级</span>
         <div class="flex gap-0.5">
-          <AxButton
-            v-for="level in filterOptions.levels"
-            :key="level"
-            variant="ghost"
-            size="lg"
-            :class="selectedLevels.includes(level)
-              ? '!bg-primary/10 !text-primary !font-semibold'
-              : 'text-secondary'"
-            @click="toggleLevel(level)"
-          >
+          <AxButton v-for="level in filterOptions.levels" :key="level" variant="ghost" size="lg" :class="selectedLevels.includes(level)
+            ? '!bg-primary/10 !text-primary !font-semibold'
+            : 'text-secondary'" @click="toggleLevel(level)">
             {{ level }}
           </AxButton>
         </div>
 
         <!-- 区域下拉 -->
         <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">区域</span>
-        <AxSelect
-          v-model="district"
-          :options="districtOptions"
-          placeholder="全部区域"
-          size="lg"
-          trigger-width="140px"
-        />
+        <AxSelect v-model="district" :options="districtOptions" placeholder="全部区域" size="lg" trigger-width="140px" />
 
         <!-- 经营状态 -->
         <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">状态</span>
-        <AxSelect
-          v-model="bizStatus"
-          :options="bizStatusOptions"
-          placeholder="经营状态"
-          size="lg"
-          trigger-width="130px"
-        />
+        <AxSelect v-model="bizStatus" :options="bizStatusOptions" placeholder="经营状态" size="lg" trigger-width="130px" />
 
         <!-- 经营类型 -->
         <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">类型</span>
-        <AxSelect
-          v-model="bizType"
-          :options="bizTypeOptions"
-          placeholder="经营类型"
-          size="lg"
-          trigger-width="140px"
-        />
+        <AxSelect v-model="bizType" :options="bizTypeOptions" placeholder="经营类型" size="lg" trigger-width="140px" />
 
         <!-- 搜索输入 -->
         <div class="ml-2 w-52">
-          <AxInput
-            v-model="search"
-            placeholder="搜索标题、地址、描述..."
-            size="lg"
-            @keyup.enter="onSearch"
-          >
+          <AxInput v-model="search" placeholder="搜索标题、地址、描述..." size="lg" @keyup.enter="onSearch">
             <template #prefix>
               <span class="material-symbols-outlined text-[16px] text-secondary">search</span>
             </template>
@@ -287,22 +328,33 @@ onMounted(async () => {
 
         <!-- 评分范围 -->
         <span class="text-xs text-secondary flex-shrink-0">评分</span>
-        <AxInput
-          v-model="scoreMin"
-          placeholder="最低"
-          size="lg"
-          class="!w-20"
-        />
+        <AxInput v-model="scoreMin" placeholder="最低" size="lg" class="!w-20" />
         <span class="text-xs text-secondary">-</span>
-        <AxInput
-          v-model="scoreMax"
-          placeholder="最高"
-          size="lg"
-          class="!w-20"
-        />
+        <AxInput v-model="scoreMax" placeholder="最高" size="lg" class="!w-20" />
         <!-- 搜索按钮 -->
         <AxButton variant="primary" size="lg" icon="search" @click="onSearch" :loading="loading">
           搜索
+        </AxButton>
+
+        <!-- 排序下拉 -->
+        <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">排序</span>
+        <AxSelect v-model="sortBy" :options="[{ value: 'id', label: '最新入库' }, { value: 'score', label: 'AI 评分' }]"
+          size="lg" trigger-width="110px" @change="onSearch" />
+        <AxButton variant="ghost" size="icon" :icon="sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'"
+          @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'; onSearch()"
+          :title="sortOrder === 'asc' ? '升序' : '降序'" />
+      </div>
+
+      <!-- 标签筛选行 -->
+      <div v-if="allTags.length" class="flex items-center gap-ax-xs mt-ax-xs flex-wrap">
+        <span class="text-xs text-secondary flex-shrink-0">
+          <span class="material-symbols-outlined text-[14px] align-text-bottom">sell</span>
+          标签
+        </span>
+        <AxButton v-for="tag in allTags" :key="tag" variant="ghost" size="lg" :class="tagSearch.includes(tag)
+          ? '!bg-primary/10 !text-primary !font-semibold'
+          : 'text-secondary'" @click="toggleTagSearch(tag); onSearch()">
+          {{ tag }}
         </AxButton>
       </div>
     </div>
@@ -329,24 +381,16 @@ onMounted(async () => {
 
         <!-- Grid 2 卡片 -->
         <div v-else class="grid grid-cols-2 gap-ax-sm">
-          <div
-            v-for="item in items"
-            :key="item.info_id"
+          <div v-for="item in items" :key="item.info_id"
             class="bg-surface-container-lowest border rounded-xl p-ax-sm cursor-pointer transition-all hover:shadow-md hover:border-primary/30"
             :class="selectedItem?.info_id === item.info_id
               ? 'border-primary ring-1 ring-primary/20'
-              : 'border-outline-variant'"
-            @click="selectItem(item)"
-          >
+              : 'border-outline-variant'" @click="selectItem(item)">
             <!-- 图片 + 评分 -->
             <div class="flex gap-ax-xs mb-ax-xs">
               <div class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-surface-container-high">
-                <AxImage
-                  v-if="firstPhoto(item.photos)"
-                  :src="proxyUrl(firstPhoto(item.photos))"
-                  :previewList="allPhotos(item.photos).map(proxyUrl)"
-                  @preview="handlePreview"
-                />
+                <AxImage v-if="firstPhoto(item.photos)" :src="proxyUrl(firstPhoto(item.photos))"
+                  :previewList="allPhotos(item.photos).map(proxyUrl)" @preview="handlePreview" />
                 <div v-else class="w-full h-full flex items-center justify-center">
                   <span class="material-symbols-outlined text-2xl text-secondary">image_not_supported</span>
                 </div>
@@ -364,19 +408,24 @@ onMounted(async () => {
 
                 <div class="flex items-center justify-between mt-ax-xs">
                   <span class="text-sm font-semibold text-primary">{{ formatPrice(item) }}</span>
-                  <span v-if="item.ai?.level" class="text-[10px] px-1.5 py-0.5 rounded-full font-medium" :class="levelColors[item.ai.level] || 'bg-gray-100 text-gray-600'">
+                  <span v-if="item.ai?.level" class="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                    :class="levelColors[item.ai.level] || 'bg-gray-100 text-gray-600'">
                     {{ item.ai.level }} {{ item.ai?.score }}
                   </span>
                 </div>
               </div>
             </div>
 
-            <!-- 标签行 -->
+            <!-- 系统标签行 -->
             <div class="flex items-center gap-ax-xs text-[10px] text-secondary flex-wrap">
               <span v-if="item.area" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.area }}</span>
-              <span v-if="item.property_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.property_type }}</span>
-              <span v-if="item.biz_status" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_status }}</span>
-              <span v-if="item.biz_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_type }}</span>
+              <span v-if="item.property_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{
+                item.property_type
+                }}</span>
+              <span v-if="item.biz_status" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_status
+                }}</span>
+              <span v-if="item.biz_type" class="px-1 py-0.5 bg-surface-container-high rounded">{{ item.biz_type
+                }}</span>
               <span v-if="!item.ai" class="px-1 py-0.5 bg-amber-50 text-amber-600 rounded">
                 <span class="material-symbols-outlined text-[12px] align-text-bottom">pending</span>
                 待评估
@@ -387,25 +436,52 @@ onMounted(async () => {
               </span>
             </div>
 
-            <!-- 操作按钮 -->
-            <div class="flex items-center justify-end gap-ax-xs mt-ax-sm text-[10px]">
-              <button
-                class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
-                :disabled="actionLoading[item.info_id + '_fetch']"
-                @click.stop="handleRefetch(item, $event)"
-              >
-                <span v-if="actionLoading[item.info_id + '_fetch']" class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
-                重新获取
-              </button>
-              <button
-                v-if="item.ai_task_id"
-                class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
-                :disabled="actionLoading[item.info_id + '_run']"
-                @click.stop="handleRerun(item, $event)"
-              >
-                <span v-if="actionLoading[item.info_id + '_run']" class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
-                重新评估
-              </button>
+            <!-- 自定义标签 + 操作按钮 同行 -->
+            <div class="flex items-center justify-between mt-ax-xs">
+              <!-- 左侧：标签 -->
+              <div class="flex items-center gap-ax-xs flex-1 min-w-0 flex-wrap h-[22px]">
+                <span v-for="tag in item.custom_tags" :key="tag"
+                  class="px-1 py-0.5 bg-primary/10 text-primary rounded cursor-pointer hover:bg-primary/20 transition-colors group/tag inline-flex items-center gap-0.5 text-[10px]"
+                  :title="`点击移除标签「${tag}」`" @click.stop="handleRemoveTag(item, tag, $event)">
+                  {{ tag }}
+                  <span
+                    class="material-symbols-outlined text-[10px] opacity-0 group-hover/tag:opacity-100 transition-opacity">close</span>
+                </span>
+                <!-- 标签输入框 -->
+                <span v-if="showTagInput[item.info_id]" class="inline-flex items-center gap-0.5">
+                  <AxInput v-model="tagInputValue[item.info_id]" size="sm" placeholder="标签..."
+                    class="!w-24 !text-[10px]" @keyup.enter="handleAddTag(item, $event)"
+                    @blur="handleBlurTagInput(item.info_id)" />
+                  <span class="material-symbols-outlined text-[12px] cursor-pointer text-secondary hover:text-primary"
+                    @click.stop="handleAddTag(item, $event)">check</span>
+                  <span class="material-symbols-outlined text-[12px] cursor-pointer text-secondary hover:text-red-500"
+                    @click.stop="showTagInput[item.info_id] = false; tagInputValue[item.info_id] = ''">close</span>
+                </span>
+                <!-- 添加按钮 -->
+                <span v-if="!showTagInput[item.info_id]"
+                  class="flex-shrink-0 px-1 py-0.5 rounded cursor-pointer text-secondary hover:text-primary hover:bg-surface-container-high transition-colors inline-flex items-center gap-0.5 text-[10px]"
+                  @click.stop="showTagInput[item.info_id] = true">
+                  <span class="material-symbols-outlined text-[12px]">add</span>
+                </span>
+              </div>
+
+              <!-- 右侧：操作按钮 -->
+              <div class="flex items-center gap-ax-xs flex-shrink-0 text-[10px] ml-ax-sm">
+                <button
+                  class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
+                  :disabled="actionLoading[item.info_id + '_fetch']" @click.stop="handleRefetch(item, $event)">
+                  <span v-if="actionLoading[item.info_id + '_fetch']"
+                    class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
+                  重新获取
+                </button>
+                <button v-if="item.ai_task_id"
+                  class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
+                  :disabled="actionLoading[item.info_id + '_run']" @click.stop="handleRerun(item, $event)">
+                  <span v-if="actionLoading[item.info_id + '_run']"
+                    class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
+                  重新评估
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -425,54 +501,38 @@ onMounted(async () => {
           <div v-if="allPhotos(selectedItem.photos).length" class="space-y-ax-xs">
             <div class="flex items-center justify-between">
               <span class="text-xs text-secondary uppercase tracking-wide">房源图片</span>
-              <span class="text-[10px] text-secondary">{{ selectedPhotoIndex + 1 }} / {{ allPhotos(selectedItem.photos).length }}</span>
+              <span class="text-[10px] text-secondary">{{ selectedPhotoIndex + 1 }} / {{
+                allPhotos(selectedItem.photos).length }}</span>
             </div>
             <div class="relative aspect-[4/3] rounded-lg overflow-hidden bg-surface-container-high">
-              <AxImage
-                :key="`detail-${selectedPhotoIndex}`"
+              <AxImage :key="`detail-${selectedPhotoIndex}`"
                 :src="proxyUrl(allPhotos(selectedItem.photos)[selectedPhotoIndex])"
-                :previewList="allPhotos(selectedItem.photos).map(proxyUrl)"
-                :previewIndex="selectedPhotoIndex"
-                objectFit="contain"
-                @preview="handlePreview"
-              />
+                :previewList="allPhotos(selectedItem.photos).map(proxyUrl)" :previewIndex="selectedPhotoIndex"
+                objectFit="contain" @preview="handlePreview" />
               <div class="absolute inset-x-0 bottom-2 flex justify-center gap-ax-xs z-10">
-                <button
-                  v-for="(_, i) in allPhotos(selectedItem.photos)"
-                  :key="i"
+                <button v-for="(_, i) in allPhotos(selectedItem.photos)" :key="i"
                   class="w-2 h-2 rounded-full transition-all"
                   :class="i === selectedPhotoIndex ? 'bg-primary scale-110' : 'bg-white/60 hover:bg-white/80'"
-                  @click="selectedPhotoIndex = i"
-                />
+                  @click="selectedPhotoIndex = i" />
               </div>
-              <button
-                v-if="allPhotos(selectedItem.photos).length > 1"
+              <button v-if="allPhotos(selectedItem.photos).length > 1"
                 class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors z-10"
-                @click="selectedPhotoIndex = (selectedPhotoIndex - 1 + allPhotos(selectedItem.photos).length) % allPhotos(selectedItem.photos).length"
-              >
+                @click="selectedPhotoIndex = (selectedPhotoIndex - 1 + allPhotos(selectedItem.photos).length) % allPhotos(selectedItem.photos).length">
                 <span class="material-symbols-outlined text-[18px]">chevron_left</span>
               </button>
-              <button
-                v-if="allPhotos(selectedItem.photos).length > 1"
+              <button v-if="allPhotos(selectedItem.photos).length > 1"
                 class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors z-10"
-                @click="selectedPhotoIndex = (selectedPhotoIndex + 1) % allPhotos(selectedItem.photos).length"
-              >
+                @click="selectedPhotoIndex = (selectedPhotoIndex + 1) % allPhotos(selectedItem.photos).length">
                 <span class="material-symbols-outlined text-[18px]">chevron_right</span>
               </button>
             </div>
             <!-- 缩略图条 -->
             <div v-if="allPhotos(selectedItem.photos).length > 1" class="flex gap-ax-xs overflow-x-auto">
-              <div
-                v-for="(photo, i) in allPhotos(selectedItem.photos)"
-                :key="i"
+              <div v-for="(photo, i) in allPhotos(selectedItem.photos)" :key="i"
                 class="w-14 h-14 flex-shrink-0 rounded-md overflow-hidden cursor-pointer border-2 transition-colors"
                 :class="i === selectedPhotoIndex ? 'border-primary' : 'border-transparent hover:border-outline-secondary'"
-                @click="selectedPhotoIndex = i"
-              >
-                <AxImage
-                  :src="proxyUrl(photo)"
-                  objectFit="cover"
-                />
+                @click="selectedPhotoIndex = i">
+                <AxImage :src="proxyUrl(photo)" objectFit="cover" />
               </div>
             </div>
           </div>
@@ -498,7 +558,9 @@ onMounted(async () => {
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">区域</span>
-                <span>{{ [selectedItem.district, selectedItem.block, selectedItem.address].filter(Boolean).join(' ') || '-' }}</span>
+                <span>{{ [selectedItem.district, selectedItem.block, selectedItem.address].filter(Boolean).join(' ') ||
+                  '-'
+                  }}</span>
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">楼层</span>
@@ -506,7 +568,8 @@ onMounted(async () => {
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">商铺类型</span>
-                <span>{{ [selectedItem.property_type, selectedItem.property_nature].filter(Boolean).join(' / ') || '-' }}</span>
+                <span>{{ [selectedItem.property_type, selectedItem.property_nature].filter(Boolean).join(' / ') || '-'
+                  }}</span>
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">经营状态</span>
@@ -526,16 +589,14 @@ onMounted(async () => {
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-secondary">发帖人</span>
-                <span class="text-right max-w-[260px]">{{ [selectedItem.poster_name, selectedItem.poster_company].filter(Boolean).join(' / ') || '-' }}</span>
+                <span class="text-right max-w-[260px]">{{ [selectedItem.poster_name,
+                selectedItem.poster_company].filter(Boolean).join(' / ') || '-' }}</span>
               </div>
               <div v-if="selectedItem.tags" class="text-sm">
                 <span class="text-secondary">标签</span>
                 <div class="flex gap-ax-xs mt-ax-xs flex-wrap">
-                  <span
-                    v-for="tag in selectedItem.tags.split('/')"
-                    :key="tag"
-                    class="px-1.5 py-0.5 text-[10px] bg-surface-container-high rounded text-secondary"
-                  >{{ tag }}</span>
+                  <span v-for="tag in selectedItem.tags.split('/')" :key="tag"
+                    class="px-1.5 py-0.5 text-[10px] bg-surface-container-high rounded text-secondary">{{ tag }}</span>
                 </div>
               </div>
             </div>
@@ -561,19 +622,14 @@ onMounted(async () => {
           <div v-if="selectedItem.facilities">
             <div class="text-xs text-secondary mb-ax-xs uppercase tracking-wide">配套设施</div>
             <div class="flex gap-ax-xs flex-wrap">
-              <span
-                v-for="f in selectedItem.facilities.split('|')"
-                :key="f"
-                class="text-[10px] px-1.5 py-0.5 rounded"
-                :class="f.includes(':有') ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-400'"
-              >{{ f.replace(/:.*$/, '') }}</span>
+              <span v-for="f in selectedItem.facilities.split('|')" :key="f" class="text-[10px] px-1.5 py-0.5 rounded"
+                :class="f.includes(':有') ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-400'">{{
+                  f.replace(/:.*$/, '') }}</span>
             </div>
           </div>
 
           <!-- ════════ AI 评估 ════════ -->
-          <div v-if="selectedItem.ai"
-            class="border-t border-outline-variant pt-ax-md"
-          >
+          <div v-if="selectedItem.ai" class="border-t border-outline-variant pt-ax-md">
             <div class="text-xs text-secondary mb-ax-sm uppercase tracking-wide">AI 评估</div>
 
             <!-- 总分 + 评级 -->
@@ -584,10 +640,8 @@ onMounted(async () => {
                 </span>
                 <span class="text-xs text-secondary">/10</span>
               </div>
-              <span
-                class="text-sm px-2 py-0.5 rounded-full font-medium"
-                :class="levelColors[selectedItem.ai.level] || 'bg-gray-100 text-gray-600'"
-              >
+              <span class="text-sm px-2 py-0.5 rounded-full font-medium"
+                :class="levelColors[selectedItem.ai.level] || 'bg-gray-100 text-gray-600'">
                 {{ selectedItem.ai.level }}
               </span>
               <span v-if="selectedItem.ai_finished_at" class="text-[10px] text-secondary">
@@ -626,8 +680,7 @@ onMounted(async () => {
 
             <!-- 收购建议 -->
             <div v-if="selectedItem.ai.advice"
-              class="p-ax-sm rounded-lg bg-surface-container-high border border-outline-variant text-sm leading-relaxed"
-            >
+              class="p-ax-sm rounded-lg bg-surface-container-high border border-outline-variant text-sm leading-relaxed">
               <div class="text-xs text-secondary mb-ax-xs font-medium">收购建议</div>
               {{ selectedItem.ai.advice }}
             </div>
@@ -642,23 +695,19 @@ onMounted(async () => {
           </div>
 
           <!-- ════════ 周边商家 ════════ -->
-          <div
-            v-if="selectedItem.nearby_pois && selectedItem.nearby_pois.length"
-            class="border-t border-outline-variant pt-ax-md"
-          >
+          <div v-if="selectedItem.nearby_pois && selectedItem.nearby_pois.length"
+            class="border-t border-outline-variant pt-ax-md">
             <div class="text-xs text-secondary mb-ax-sm uppercase tracking-wide flex items-center gap-ax-xs">
               <span class="material-symbols-outlined text-[14px]">location_on</span>
               周边商家（{{ selectedItem.nearby_pois.length }} 个，半径 1km）
             </div>
             <div class="space-y-ax-xs">
-              <div
-                v-for="(poi, idx) in selectedItem.nearby_pois"
-                :key="poi.id || idx"
-                class="flex items-start gap-ax-sm p-ax-xs rounded-lg bg-surface-container-high hover:bg-surface-container transition-colors"
-              >
+              <div v-for="(poi, idx) in selectedItem.nearby_pois" :key="poi.id || idx"
+                class="flex items-start gap-ax-sm p-ax-xs rounded-lg bg-surface-container-high hover:bg-surface-container transition-colors">
                 <!-- 序号 -->
-                <div class="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {{ idx + 1 }}
+                <div
+                  class="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {{ parseInt(idx + "") + 1 }}
                 </div>
 
                 <!-- 主信息 -->
@@ -677,26 +726,15 @@ onMounted(async () => {
                 </div>
 
                 <!-- 周边图片（手牌式重叠） -->
-                <div
-                  v-if="poi.photos && poi.photos.length"
-                  class="flex-shrink-0 relative"
-                  style="width:56px;height:56px"
-                >
-                  <div
-                    v-for="(ph, i) in poi.photos.slice(0, 3)"
-                    :key="i"
-                    class="absolute inset-0 transition-transform hover:z-50"
-                    :style="{
-                      transform: `rotate(${(Number(i) - (poi.photos.length-1)/2) * 7}deg) translateX(${(Number(i) - (poi.photos.length-1)/2) * 2}px)`,
+                <div v-if="poi.photos && poi.photos.length" class="flex-shrink-0 relative"
+                  style="width:56px;height:56px">
+                  <div v-for="(ph, i) in poi.photos.slice(0, 3)" :key="i"
+                    class="absolute inset-0 transition-transform hover:z-50" :style="{
+                      transform: `rotate(${(Number(i) - (poi.photos.length - 1) / 2) * 7}deg) translateX(${(Number(i) - (poi.photos.length - 1) / 2) * 2}px)`,
                       zIndex: Number(i),
-                    }"
-                    @click.stop="viewerImages = poi.photos; viewerInitialIndex = Number(i); viewerVisible = true"
-                  >
-                    <AxImage
-                      :src="ph"
-                      objectFit="cover"
-                      class="!rounded-md overflow-hidden border-2 border-white shadow-sm"
-                    />
+                    }" @click.stop="viewerImages = poi.photos; viewerInitialIndex = Number(i); viewerVisible = true">
+                    <AxImage :src="ph" objectFit="cover"
+                      class="!rounded-md overflow-hidden border-2 border-white shadow-sm" />
                   </div>
                 </div>
               </div>
@@ -706,7 +744,8 @@ onMounted(async () => {
           <!-- 无 AI 评估 -->
           <div v-if="!selectedItem.ai" class="border-t border-outline-variant pt-ax-md">
             <div class="text-xs text-secondary mb-ax-sm uppercase tracking-wide">AI 评估</div>
-            <div class="flex items-center gap-ax-sm text-sm text-secondary p-ax-sm rounded-lg bg-surface-container-high">
+            <div
+              class="flex items-center gap-ax-sm text-sm text-secondary p-ax-sm rounded-lg bg-surface-container-high">
               <span class="material-symbols-outlined">hourglass_empty</span>
               <span>尚未评估，等待 Workflow 处理</span>
             </div>
@@ -736,23 +775,13 @@ onMounted(async () => {
     <!-- ════════════════ 底部分页 ════════════════ -->
     <div v-if="total > 0"
       class="flex-shrink-0 border-t border-outline-variant bg-surface-container-lowest px-4 py-ax-sm">
-      <AxPagination
-        :page="page"
-        :size="size"
-        :total="total"
-        :sizes="[12, 20, 36, 60]"
-        @update:page="onPageChange"
-        @update:size="onSizeChange"
-      />
+      <AxPagination :page="page" :size="size" :total="total" :sizes="[12, 20, 36, 60]" @update:page="onPageChange"
+        @update:size="onSizeChange" />
     </div>
   </div>
 
   <!-- ════════════════ 全屏图片查看器 ════════════════ -->
-  <AxImageViewer
-    :images="viewerImages"
-    :initialIndex="viewerInitialIndex"
-    v-model:visible="viewerVisible"
-  />
+  <AxImageViewer :images="viewerImages" :initialIndex="viewerInitialIndex" v-model:visible="viewerVisible" />
 </template>
 
 <style scoped>
@@ -761,7 +790,12 @@ onMounted(async () => {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

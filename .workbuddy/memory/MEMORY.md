@@ -57,3 +57,6 @@
 - 设计文档：`docs/plans/2026-06-23-workflow-system-design.md`
 - 实施计划：`docs/plans/2026-06-23-workflow-system-plan.md`
 - 457/457 测试全过（含 15 个新测试），零原有回归
+
+## 修复记录 — 2026-06-24
+- `web-ui/src/views/DataBrowserView.vue`：修复 `<Transition>` 动画警告 — 组件 template 有多个根节点（div + AxDialog），Vue 3 编译为 Fragment。`<Transition name="fade" mode="out-in">`（DefaultLayout.vue:15）要求单元素根节点。**修复方式**：将全部内容包裹在单个根 `<div class="space-y-ax-md relative">` 内。QueueView 和 CookiePresetsView 也有 AxDialog 但已在根 div 内部，无需改动。

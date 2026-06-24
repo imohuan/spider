@@ -19,5 +19,5 @@ export const api = {
   get: <T = any>(url: string, params?: any, config?: any) => http.get<any, T>(url, { params, ...config }),
   post: <T = any>(url: string, data?: any, config?: any) => http.post<any, T>(url, data, config),
   put: <T = any>(url: string, data?: any) => http.put<any, T>(url, data),
-  del: <T = any>(url: string) => http.delete<any, T>(url),
+  del: <T = any>(url: string, data?: any) => http.delete<any, T>(url, { data }),
 }

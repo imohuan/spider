@@ -109,63 +109,64 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-ax-md">
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-ax-sm flex items-center gap-ax-sm">
-      <span class="text-xs text-secondary">业务表</span>
-      <AxSelect v-model="selectedTable" size="lg" :options="tableOptions" placeholder="请选择" @update:model-value="onTableChange" />
-      <div class="flex-1"></div>
-      <AxButton variant="outline"  size="lg" icon="download" @click="exportCsv" :disabled="!selectedTable">导出 CSV</AxButton>
+  <div>
+    <div class="space-y-ax-md relative">
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl px-4 py-ax-sm flex items-center gap-ax-sm">
+        <span class="text-xs text-secondary">业务表</span>
+        <AxSelect v-model="selectedTable" size="lg" :options="tableOptions" placeholder="请选择" @update:model-value="onTableChange" />
+        <div class="flex-1"></div>
+        <AxButton variant="outline"  size="lg" icon="download" @click="exportCsv" :disabled="!selectedTable">导出 CSV</AxButton>
+      </div>
+
+      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+        <div v-if="selectedTable && rows.length" class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-surface-container-low text-secondary text-[11px]">
+              <tr>
+                <th v-for="c in columns" :key="c" class="text-left px-4 py-2 font-medium truncate">{{ c }}</th>
+                <th v-if="isWorkflowQueue" class="text-left px-4 py-2 font-medium w-20">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant">
+              <tr
+                v-for="(r, i) in rows"
+                :key="i"
+                class="hover:bg-surface-container-low cursor-pointer"
+                @click="openDetail(r)"
+              >
+                <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]" v-html="linkify(r[c])" />
+                <td v-if="isWorkflowQueue" class="px-4 py-2" @click.stop>
+                  <AxButton
+                    size="icon"
+                    variant="ghost"
+                    icon="refresh"
+                    :loading="requeueingIds.has(r['id'])"
+                    :disabled="r['status'] === 'pending' || r['status'] === 'running'"
+                    @click="handleRequeue(r)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="p-ax-lg text-center text-secondary text-sm">
+          {{ selectedTable ? '表为空' : '请选择业务表' }}
+        </div>
+        <div v-if="selectedTable && total > 0" class="px-4 py-ax-sm border-t border-outline-variant">
+          <AxPagination
+            :page="page"
+            :size="size"
+            :total="total"
+            :sizes="[20, 50, 100]"
+            @update:page="handlePageChange"
+            @update:size="handleSizeChange"
+          />
+        </div>
+      </div>
     </div>
 
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
-      <div v-if="selectedTable && rows.length" class="overflow-x-auto">
-        <table class="w-full text-xs">
-          <thead class="bg-surface-container-low text-secondary text-[11px]">
-            <tr>
-              <th v-for="c in columns" :key="c" class="text-left px-4 py-2 font-medium truncate">{{ c }}</th>
-              <th v-if="isWorkflowQueue" class="text-left px-4 py-2 font-medium w-20">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant">
-            <tr
-              v-for="(r, i) in rows"
-              :key="i"
-              class="hover:bg-surface-container-low cursor-pointer"
-              @click="openDetail(r)"
-            >
-              <td v-for="c in columns" :key="c" class="px-4 py-2 text-primary truncate max-w-[200px]" v-html="linkify(r[c])" />
-              <td v-if="isWorkflowQueue" class="px-4 py-2" @click.stop>
-                <AxButton
-                  size="icon"
-                  variant="ghost"
-                  icon="refresh"
-                  :loading="requeueingIds.has(r['id'])"
-                  :disabled="r['status'] === 'pending' || r['status'] === 'running'"
-                  @click="handleRequeue(r)"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="p-ax-lg text-center text-secondary text-sm">
-        {{ selectedTable ? '表为空' : '请选择业务表' }}
-      </div>
-      <div v-if="selectedTable && total > 0" class="px-4 py-ax-sm border-t border-outline-variant">
-        <AxPagination
-          :page="page"
-          :size="size"
-          :total="total"
-          :sizes="[20, 50, 100]"
-          @update:page="handlePageChange"
-          @update:size="handleSizeChange"
-        />
-      </div>
-    </div>
-  </div>
-
-  <!-- 行详情弹窗：宽 80vw，高 80vh -->
-  <AxDialog
+    <!-- 行详情弹窗：宽 80vw，高 80vh -->
+    <AxDialog
     v-model="detailOpen"
     :title="`${selectedTable} — 行详情`"
     icon="table_rows"
@@ -216,4 +217,5 @@ onMounted(async () => {
       <AxButton variant="outline" @click="close">关闭</AxButton>
     </template>
   </AxDialog>
+  </div>
 </template>

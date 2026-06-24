@@ -135,3 +135,39 @@ def test_enqueue_preserves_existing_cookies(client):
     )
     rc = json.loads(row[0])
     assert rc["cookies"] == {"custom": "keep-me"}
+
+
+def test_create_task_raw_html(client):
+    """raw 模式：传入 html 自动切换 fetch_mode='raw'，HTML 存入 request_config。"""
+    resp = client.post("/api/queue", json={
+        "url": "https://58.com/ershouche/123",
+        "html": "<html><body>58二手车页面</body></html>",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"]
+    assert data["fetch_mode"] == "raw"
+
+    s = Storage()
+    row = s.execute(
+        "SELECT fetch_mode, request_config FROM queue WHERE id = ?",
+        (data["queue_id"],), fetch="one",
+    )
+    assert row is not None
+    assert row[0] == "raw"
+    rc = json.loads(row[1])
+    assert rc["html"] == "<html><body>58二手车页面</body></html>"
+
+
+def test_create_task_raw_html_with_parser_name(client):
+    """raw 模式 + 显式 parser_name。"""
+    resp = client.post("/api/queue", json={
+        "url": "https://58.com/ershouche/456",
+        "parser_name": "ErshoucheListParser",
+        "html": "<html><body>列表页</body></html>",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"]
+    assert data["fetch_mode"] == "raw"
+    assert data["parser"] == "ErshoucheListParser"

@@ -58,3 +58,98 @@ class TestFinishRequestEmptyData:
         assert result == "success"
         pool.state_machine.mark_done.assert_called_once()
         pool.storage.save_business_data.assert_called_once()
+
+
+class TestProcessRaw:
+    """Raw 模式：跳过抓取，直接解析传入的 HTML。"""
+
+    def _make_pool(self, html: str = "<html><body>test</body></html>"):
+        from core.request_pool import RequestPool
+        pool = RequestPool.__new__(RequestPool)
+        pool.storage = MagicMock()
+        pool.storage.create_request.return_value = 1  # 返回整数 ID，避免文件名含 MagicMock 字符串
+        pool.state_machine = MagicMock()
+        pool.config = MagicMock()
+        pool.config.get.return_value = "browser"
+        pool.keep_browser_open = False
+        pool.browser = None
+        pool.proxy_pool = None
+        pool.captcha_handler = None
+        pool.image_downloader = None
+        return pool
+
+    def _make_task(self, html: str, url: str = "https://58.com/test"):
+        import json
+        return {
+            "id": 1,
+            "url": url,
+            "fetch_mode": "raw",
+            "request_config": json.dumps({"html": html}),
+        }
+
+    def _make_parser(self, data: list[dict] | None = None):
+        parser = MagicMock()
+        parser.parse.return_value = data if data is not None else [{"title": "ok"}]
+        parser.table_name = "test_table"
+        parser.ensure_table = MagicMock()
+        return parser
+
+    def test_raw_parses_and_returns_success(self):
+        """正常 HTML → parser.parse 被调用 → 返回 success。"""
+        pool = self._make_pool()
+        parser = self._make_parser([{"title": "ok"}])
+        task = self._make_task("<html><body>hello</body></html>")
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "success"
+        parser.parse.assert_called_once_with("<html><body>hello</body></html>", task["url"])
+        pool.storage.save_business_data.assert_called_once()
+        pool.state_machine.mark_done.assert_called_once()
+
+    def test_raw_empty_html_marks_failed(self):
+        """空 HTML → 直接 mark_failed，不调用 parser.parse。"""
+        pool = self._make_pool()
+        parser = self._make_parser()
+        task = self._make_task("")
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "failed"
+        pool.state_machine.mark_failed.assert_called_once()
+        parser.parse.assert_not_called()
+
+    def test_raw_parse_exception_marks_failed(self):
+        """parse 抛异常 → mark_failed。"""
+        pool = self._make_pool()
+        parser = self._make_parser()
+        parser.parse.side_effect = ValueError("解析崩溃")
+        task = self._make_task("<html><body>bad</body></html>")
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "failed"
+        pool.state_machine.mark_failed.assert_called_once()
+
+    def test_raw_preserves_html_in_raw_response(self):
+        """原始 HTML 应保存为 raw_response 文件。"""
+        pool = self._make_pool()
+        parser = self._make_parser([{"title": "ok"}])
+        html_content = "<html><head></head><body><div>58同城数据</div></body></html>"
+        task = self._make_task(html_content)
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "success"
+        # _save_raw_response 应被调用，且内容包含原始 HTML
+        call_args = pool.storage.mark_request_success.call_args
+        raw_path = call_args[1].get("raw_response_path", "")
+        assert raw_path  # 路径非空，表明文件已生成

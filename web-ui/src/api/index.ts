@@ -89,10 +89,18 @@ export const shengyiApi = {
     score_min?: number
     score_max?: number
     status?: string
+    tag?: string
+    sort_by?: string
+    sort_order?: string
   }) => api.get('/shengyi/list', p),
   filters: () => api.get('/shengyi/filters'),
   detail: (infoId: string) => api.get(`/shengyi/detail/${infoId}`),
   refetch: (infoId: string) => api.post(`/shengyi/refetch/${infoId}`),
+  /** 标签 */
+  allTags: () => api.get('/shengyi/tags'),
+  itemTags: (infoId: string) => api.get(`/shengyi/${infoId}/tags`),
+  addTag: (infoId: string, tag: string) => api.post(`/shengyi/${infoId}/tags`, { tag }),
+  removeTag: (infoId: string, tag: string) => api.del(`/shengyi/${infoId}/tags`, { tag }),
 }
 
 export const cookiePresetsApi = {
