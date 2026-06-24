@@ -44,7 +44,7 @@ const LABEL_MAP: Record<string, string> = {
   http_follow_redirects: '跟随重定向',
   // AI
   ai_base_url: 'AI 基础地址', ai_api_key: 'AI Key', ai_model: 'AI 模型',
-  ai_system_prompt: '系统提示词',
+  ai_system_prompt: '系统提示词', ai_eval_prompt: '评估提示词',
   // 高德地图
   amap_key: '高德 JS API Key', amap_security_code: '安全密钥', amap_webapi_key: '高德 Web服务 Key',
 }
@@ -57,7 +57,7 @@ const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
   fetch_mode: [{ value: 'browser', label: 'browser' }, { value: 'http', label: 'http' }],
 }
 const TEXT_KEYS = new Set(['proxy_api_url', 'http_user_agent', 'http_default_headers', 'ai_base_url', 'ai_api_key', 'ai_model', 'amap_key', 'amap_security_code', 'amap_webapi_key'])
-const TEXTAREA_KEYS = new Set(['ai_system_prompt'])
+const TEXTAREA_KEYS = new Set(['ai_system_prompt', 'ai_eval_prompt'])
 
 function inferType(key: string): ConfigType {
   if (BOOL_KEYS.has(key)) return 'bool'
@@ -95,7 +95,7 @@ const CATEGORY_MAP: Record<number, string[]> = {
   2: ['image_download', 'image_download_concurrency', 'image_download_poll_sec', 'image_download_batch'],
   3: ['captcha_enabled', 'captcha_auto_solve', 'captcha_max_retry', 'captcha_fallback', 'captcha_max_switch', 'captcha_cooldown'],
   4: ['log_level', 'fetch_mode', 'http_user_agent', 'http_default_headers', 'http_follow_redirects'],
-  5: ['ai_base_url', 'ai_api_key', 'ai_model', 'ai_system_prompt'],
+  5: ['ai_base_url', 'ai_api_key', 'ai_model', 'ai_system_prompt', 'ai_eval_prompt'],
   6: ['amap_key', 'amap_security_code', 'amap_webapi_key'],
 }
 

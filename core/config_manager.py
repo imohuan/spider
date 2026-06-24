@@ -25,6 +25,36 @@ logger = get_logger("config")
 
 # 默认配置项，首次启动时 INSERT OR IGNORE（设计文档 3.1）
 # 顺序与文档表格一致，便于人工对照
+# AI 评估提示词默认值（厨具二手批发商评估）—— 数据库为空时使用
+_AI_EVAL_PROMPT_DEFAULT = '''你是一个厨具二手批发商，有多年商用厨房设备采购经验。
+你需要浏览商家发布的转让/出售信息中的图片，评估哪些商家更有合作潜力。
+
+请从以下维度逐一分析图片，并结合商家提供的文本信息，给出综合评估：
+
+1. **铺面规模** — 店面/仓库面积大小，是否能容纳大量设备库存
+2. **设备状况** — 设备新旧程度、品牌档次、摆放是否整齐有序
+3. **经营品类** — 设备种类的丰富度和市场需求匹配度
+4. **信息可靠性** — 图片是否真实拍摄（非网图/PS）、是否展示实际场景
+5. **转让诚意** — 从图片中判断商家是否真正想出手（如店面清仓、搬迁迹象）
+
+请综合商家文本信息（租金、转让费、面积、位置、经营类型等）与图片内容，
+判断该商家与厨具二手批发业务的匹配程度，以及是否有合作收购价值。
+
+**最终输出必须是严格的 JSON 格式，不要包含 markdown 代码块标记：**
+{
+    "score": <1-10 整数>,
+    "level": "<潜力极高 | 值得关注 | 一般 | 不推荐>",
+    "summary": "<一句话总结>",
+    "details": {
+        "scale": "<铺面规模评价>",
+        "equipment": "<设备状况评价>",
+        "category": "<经营品类评价>",
+        "reliability": "<信息可靠性评价>",
+        "intent": "<转让诚意评价>"
+    },
+    "advice": "<具体建议：是否值得联系，预期收购价范围，注意事项>"
+}'''
+
 _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     # --- 代理 ---
     ("proxy_enabled", "true", "启用后所有请求优先走代理池，关闭则直连"),
@@ -75,6 +105,7 @@ _DEFAULT_CONFIGS: list[tuple[str, str, str]] = [
     ("ai_api_key", "", "AI API 密钥，用于调用大模型"),
     ("ai_model", "", "AI 模型名称，如 gpt-4o / deepseek-chat"),
     ("ai_system_prompt", "", "AI 系统提示词，定义 AI 的角色和行为"),
+    ("ai_eval_prompt", _AI_EVAL_PROMPT_DEFAULT, "AI 评估提示词，用于 58 评估使用"),
     # --- 反检测 ---
     ("anti_bot_random_ua", "true", "每次请求随机生成 User-Agent，需 fake-useragent 库支持"),
     ("anti_bot_stealth", "true", "Browser 模式下启用 playwright-stealth 隐藏浏览器自动化特征"),
