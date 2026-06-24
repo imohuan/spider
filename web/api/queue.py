@@ -40,7 +40,7 @@ def _save_raw_html(html: str) -> str:
     """
     os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    # 取 HTML 长度前 8 位 hex 做简单去重标识
+    # 取 HTML 前 2000 字符的 hash 做文件名后缀（防撞名）
     tag = format(abs(hash(html[:2000] if len(html) > 2000 else html)), 'x')[:8]
     filename = f"raw_{ts}_{tag}.html"
     filepath = os.path.join(RAW_RESPONSE_DIR, filename)
@@ -107,7 +107,8 @@ def create_task():
         fetch_mode:   string (可选) — "browser" / "http" / "raw"，默认 "browser"
         request_config: dict (可选) — 任务级请求参数（method/headers/cookies 等）
         html:         string (可选) — 直接传入 HTML 文本，跳过抓取。
-                      传入后 fetch_mode 自动设为 "raw"，HTML 存入 request_config.html。
+                      传入后 fetch_mode 自动设为 "raw"，HTML 存文件，
+                      DB 只记 request_config.raw_html_path 路径。
     返回:
         {ok: true, queue_id: int}
     """
@@ -124,7 +125,7 @@ def create_task():
     
     # raw 模式：传入 html 则自动切换，跳过抓取
     # HTML 立即保存到 data/raw_responses/，DB 只存文件路径
-    raw_html_path = None
+    raw_mode = False
     if html_text:
         fetch_mode = 'raw'
         raw_mode = True

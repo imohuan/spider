@@ -160,10 +160,10 @@ def test_create_task_raw_html(client):
     assert "raw_html_path" in rc
     assert "html" not in rc
     # 路径指向实际文件
-    path = rc["raw_html_path"]
+    path = rc["raw_html_path"].replace("\\", "/")
     assert path.startswith("data/raw_responses/raw_")
     assert path.endswith(".html")
-    assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", path))
+    assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", rc["raw_html_path"]))
 
 
 def test_create_task_raw_html_with_parser_name(client):
