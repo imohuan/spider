@@ -1,4 +1,4 @@
-"""58同城爬虫框架入口。
+"""通用网页爬虫框架入口。
 
 启动流程：
 1. 初始化目录 / 日志 / DB / 配置
@@ -16,8 +16,8 @@
     python main.py --seed-url https://ershouche.58.com/ --max-tasks 100
     python main.py --no-proxy               # 禁用代理直连
     python main.py --log-level DEBUG        # 调试模式
-    python main.py --serve                  # 启动 Web 管理后台
-    python main.py --serve --fetch-mode http --seed https://cd.58.com/ershouche/  # HTTP 模式 + Web UI
+    python main.py --serve                  # 启动 Web 管理后台（爬虫不自动启动，需从 UI 触发）
+    python main.py --serve --fetch-mode http --seed https://cd.58.com/ershouche/  # 纯爬虫模式 + Web UI
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from core.bootstrap import (
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(
-        description="58同城爬虫框架",
+        description="通用网页爬虫框架",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -221,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     log_level = args.log_level or "INFO"
     logger = init_environment(log_level)
     logger.info("=" * 60)
-    logger.info("58同城爬虫框架启动")
+    logger.info("通用网页爬虫 v2.0")
     logger.info("=" * 60)
 
     # 创建持久事件循环（Playwright 对象绑循环，必须全程同一循环）
@@ -290,6 +290,15 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
+    # 启动模式横幅
+    fetch_mode = config_mgr.get("fetch_mode", "browser")
+    proxy_mode = "直连" if proxy_pool.provider is None else config_mgr.get("proxy_provider", "default")
+    logger.info(f"抓取模式: {fetch_mode}, 代理: {proxy_mode}")
+    if args.serve:
+        logger.info(f"Web UI: http://{args.web_host}:{args.web_port}")
+    else:
+        logger.info("Web UI: 未启用 (--serve 开启)")
+
     # 启动健康检查线程（代理启用时）
     if config_mgr.get_bool("proxy_enabled", default=False):
         proxy_pool.start_health_check_loop()
@@ -321,10 +330,17 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         try:
-            # 主循环
-            stats = scheduler.run(max_tasks=args.max_tasks)
-            logger.info(f"抓取完成，统计: {stats}")
-            return 0
+            if args.serve:
+                # --serve 模式：只跑 Web 后台，爬虫由用户从 UI 手动触发，主线程守护等待
+                logger.info("Web UI 模式：爬虫未自动启动，请从管理后台手动触发。")
+                if server_thread is not None:
+                    server_thread.join()
+                return 0
+            else:
+                # 纯爬虫模式：直接运行主循环
+                stats = scheduler.run(max_tasks=args.max_tasks)
+                logger.info(f"抓取完成，统计: {stats}")
+                return 0
         except KeyboardInterrupt:
             logger.info("收到 Ctrl+C，触发优雅退出")
             scheduler.request_shutdown()

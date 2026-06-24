@@ -247,16 +247,19 @@ def package_backend() -> None:
         # ── 数据文件（注入到 _internal/） ──
         f"--add-data={STATIC_DIR}{ADD_DATA_SEP}web{os.sep}static",
         f"--add-data={playwright_driver}{ADD_DATA_SEP}playwright{os.sep}driver",
+        f"--add-data={PROJECT_ROOT / 'workflows'}{ADD_DATA_SEP}workflows",
+        f"--add-data={PROJECT_ROOT / 'parser' / 'plugins'}{ADD_DATA_SEP}parser{os.sep}plugins",
 
         # ── 收集完整包（含 .pyd / .dll / package data） ──
         "--collect-all", "playwright",
+        "--collect-all", "playwright_stealth",
         "--collect-all", "eventlet",
         "--collect-all", "flask_socketio",
         "--collect-all", "engineio",
         "--collect-all", "socketio",
         "--collect-all", "dns",
 
-        # ── 隐藏导入（eventlet monkey-patch 所需） ──
+        # ── 隐藏导入（动态 import 检测不到） ──
         "--hidden-import", "eventlet.hubs.epolls",
         "--hidden-import", "eventlet.hubs.kqueue",
         "--hidden-import", "eventlet.hubs.selects",
@@ -265,6 +268,10 @@ def package_backend() -> None:
         "--hidden-import", "dns.rdtypes.ANY",
         "--hidden-import", "engineio.async_drivers.eventlet",
         "--hidden-import", "greenlet",
+        "--hidden-import", "parser.plugins",
+        "--hidden-import", "parser.plugins.shengyizr",
+        "--hidden-import", "parser.plugins.tianyancha",
+        "--hidden-import", "core.image_utils",
 
         # ── 排除不需要的模块（减小编译体积） ──
         "--exclude-module", "playwright.firefox",

@@ -176,7 +176,8 @@ def _run_scheduler() -> None:
     scheduler.run()
 
 scheduler_thread = threading.Thread(target=_run_scheduler, daemon=True)
-scheduler_thread.start()
+# 开发模式：不自动启动爬虫，等用户从 UI 手动触发
+# scheduler_thread.start()
 
 # 图片下载队列 Worker（独立线程 + 专用事件循环，http/browser 模式都能消费）
 _img_worker, _img_loop, _img_thread = start_image_worker(
