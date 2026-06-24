@@ -34,6 +34,7 @@ const scoreMin = ref('')
 const scoreMax = ref('')
 const wfStatus = ref('')
 const tagSearch = ref<string[]>([])
+const hasPhone = ref('')
 const sortBy = ref('id')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
@@ -86,6 +87,7 @@ const buildParams = () => {
   if (scoreMax.value.trim()) p.score_max = Number(scoreMax.value)
   if (wfStatus.value) p.status = wfStatus.value
   if (tagSearch.value.length) p.tag = tagSearch.value.join(',')
+  if (hasPhone.value) p.has_phone = hasPhone.value
   if (sortBy.value) p.sort_by = sortBy.value
   if (sortOrder.value) p.sort_order = sortOrder.value
   return p
@@ -135,6 +137,7 @@ const resetFilters = () => {
   scoreMax.value = ''
   wfStatus.value = ''
   tagSearch.value = []
+  hasPhone.value = ''
   sortBy.value = 'id'
   sortOrder.value = 'desc'
   page.value = 1
@@ -316,6 +319,14 @@ onMounted(async () => {
         <!-- 经营类型 -->
         <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">类型</span>
         <AxSelect v-model="bizType" :options="bizTypeOptions" placeholder="经营类型" size="lg" trigger-width="140px" />
+
+        <!-- 周边电话 -->
+        <span class="text-xs text-secondary flex-shrink-0 ml-ax-sm">电话</span>
+        <AxSelect v-model="hasPhone" :options="[
+          { value: '', label: '全部' },
+          { value: '1', label: '有电话' },
+          { value: 'mobile', label: '仅手机号' },
+        ]" size="lg" trigger-width="110px" />
 
         <!-- 搜索输入 -->
         <div class="ml-2 w-52">

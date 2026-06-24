@@ -112,6 +112,16 @@ def _build_where(params: dict) -> tuple[str, list]:
         conditions.append("w.status = ?")
         args.append(wf_status)
 
+    # 周边电话筛选
+    #   has_phone=1   → 任意 nearby_poi 有非空 tel（含座机区号如 028-xxx）
+    #   has_phone=mobile → 任意 nearby_poi 有手机号（tel 以 1 开头，排除纯座机）
+    #   json.dumps 默认 separators=(', ', ': ')，冒号后有空格
+    has_phone = params.get("has_phone", "").strip()
+    if has_phone == "1":
+        conditions.append('w.result LIKE \'%"tel": "_%\'')
+    elif has_phone == "mobile":
+        conditions.append('w.result LIKE \'%"tel": "1%\'')
+
     # 自定义标签筛选（多标签 OR 逻辑: 满足任一标签即匹配）
     tag_raw = params.get("tag", "").strip()
     if tag_raw:
@@ -143,6 +153,7 @@ def list_items():
         level=潜力极高,值得关注  (逗号分隔多选)
         score_min=5   score_max=10
         status=done   (workflow 状态)
+        has_phone=1     (周边电话: 1=有电话含座机, mobile=仅手机号)
         tag=靠谱,急转    (自定义标签筛选, 逗号分隔, OR 逻辑)
         sort_by=score  (排序字段: score / id; 默认 id)
         sort_order=asc (asc / desc; 默认 desc)

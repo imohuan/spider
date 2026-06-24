@@ -90,6 +90,7 @@ export const shengyiApi = {
     score_max?: number
     status?: string
     tag?: string
+    has_phone?: string
     sort_by?: string
     sort_order?: string
   }) => api.get('/shengyi/list', p),
