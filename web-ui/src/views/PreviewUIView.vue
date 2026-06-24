@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, } from 'vue'
 import { dataApi, configApi } from '@/api'
 import { useNotify } from '@/components/ui'
 
@@ -310,8 +310,7 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.card-item > :deep(div) {
+.card-item> :deep(div) {
   height: 100%;
 }
 </style>
-

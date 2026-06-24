@@ -24,7 +24,7 @@ const sortBy = ref((route.query.sortBy as string) || 'distance')
 const keyword = ref((route.query.keyword as string) || '')
 
 // ── 组件引用 ──
-const amapRef = ref<InstanceType<typeof AmapNearbySearch> | null>(null)
+// const amapRef = ref<InstanceType<typeof AmapNearbySearch> | null>(null)
 
 // ── 同步到 URL ──
 let syncTimer: any = null
