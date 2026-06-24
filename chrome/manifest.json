@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "58 同城爬虫管理助手 — 快速将当前页面加入抓取队列",
   "host_permissions": [
-    "http://localhost:5175/*"
+    "http://localhost:5000/*"
   ],
   "content_scripts": [
     {

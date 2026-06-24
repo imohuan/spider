@@ -14,7 +14,7 @@
   // —— 仅在顶层窗口运行，避免 iframe 重复注入
   if (window.top !== window.self) return
 
-  const API_BASE = 'http://localhost:5175'
+  const API_BASE = 'http://localhost:5000'
 
   // =========================================================================
   // API 调用

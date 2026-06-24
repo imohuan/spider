@@ -100,8 +100,9 @@ def create_app(config_name: str = 'dev', static_folder: str | None = None) -> Fl
     )
     app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET', '58-crawler-dev')
 
-    if config_name == 'dev':
-        CORS(app, resources={r'/api/*': {'origins': '*'}, r'/socket.io/*': {'origins': '*'}})
+    # CORS — 允许所有来源访问 /api/* 和 /socket.io/*
+    # 前后端分离场景（Vite dev server 5175 → Flask 5000）必须开启
+    CORS(app, resources={r'/api/*': {'origins': '*'}, r'/socket.io/*': {'origins': '*'}})
 
     # 提供前端 SPA（hash 路由，只需返回 index.html）
     if static_folder:
