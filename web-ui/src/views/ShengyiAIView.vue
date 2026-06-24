@@ -625,13 +625,29 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <!-- 首图 -->
-                <img
-                  v-if="poi.photos && poi.photos[0]"
-                  :src="poi.photos[0]"
-                  class="w-12 h-12 rounded-md object-cover flex-shrink-0 bg-surface-container"
-                  loading="lazy"
-                />
+                <!-- 周边图片（手牌式重叠） -->
+                <div
+                  v-if="poi.photos && poi.photos.length"
+                  class="flex-shrink-0 relative"
+                  style="width:56px;height:56px"
+                >
+                  <div
+                    v-for="(ph, i) in poi.photos.slice(0, 3)"
+                    :key="i"
+                    class="absolute inset-0 transition-transform hover:z-50"
+                    :style="{
+                      transform: `rotate(${(Number(i) - (poi.photos.length-1)/2) * 7}deg) translateX(${(Number(i) - (poi.photos.length-1)/2) * 2}px)`,
+                      zIndex: Number(i),
+                    }"
+                    @click.stop="viewerImages = poi.photos; viewerInitialIndex = Number(i); viewerVisible = true"
+                  >
+                    <AxImage
+                      :src="ph"
+                      objectFit="cover"
+                      class="!rounded-md overflow-hidden border-2 border-white shadow-sm"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
