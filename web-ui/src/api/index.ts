@@ -92,6 +92,7 @@ export const shengyiApi = {
   }) => api.get('/shengyi/list', p),
   filters: () => api.get('/shengyi/filters'),
   detail: (infoId: string) => api.get(`/shengyi/detail/${infoId}`),
+  refetch: (infoId: string) => api.post(`/shengyi/refetch/${infoId}`),
 }
 
 export const cookiePresetsApi = {

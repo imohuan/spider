@@ -283,3 +283,40 @@ def get_detail(info_id: str):
             f"GET /api/shengyi/detail/{info_id} 失败:\n{traceback.format_exc()}"
         )
         return jsonify({"error": "Internal server error"}), 500
+
+
+@bp.route("/refetch/<info_id>", methods=["POST"])
+def refetch_url(info_id: str):
+    """重新获取 — 将对应 URL 的队列任务重置为 pending（已存在则重试，不存在则入队）。"""
+    logger.info(f"POST /api/shengyi/refetch/{info_id}")
+    try:
+        s = Storage()
+        row = s.execute(
+            "SELECT url FROM shengyizr_detail WHERE info_id = ?",
+            (info_id,), fetch="one",
+        )
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+
+        url = row["url"]
+        # 先查已有队列任务
+        existing = s.execute(
+            "SELECT id FROM queue WHERE url = ?",
+            (url,), fetch="one",
+        )
+        if existing:
+            s.execute(
+                "UPDATE queue SET status='pending', retry_count=retry_count+1, error_msg=NULL, error_type=NULL WHERE id=?",
+                (existing["id"],),
+            )
+            logger.info(f"refetch {info_id} → reset queue #{existing['id']} to pending")
+            return jsonify({"ok": True, "queue_id": existing["id"], "action": "retry"})
+
+        queue_id = s.enqueue(url, parser_name="ShengyiZRDetailParser")
+        logger.info(f"refetch {info_id} → new queue #{queue_id}")
+        return jsonify({"ok": True, "queue_id": queue_id, "action": "enqueue"})
+    except Exception:
+        logger.error(
+            f"POST /api/shengyi/refetch/{info_id} 失败:\n{traceback.format_exc()}"
+        )
+        return jsonify({"error": "Internal server error"}), 500

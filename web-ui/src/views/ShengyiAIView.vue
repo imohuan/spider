@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { shengyiApi } from '@/api'
+import { shengyiApi, workflowsApi } from '@/api'
 import { useNotify } from '@/components/ui'
 import AxImageViewer from '@/components/ui/AxImageViewer.vue'
 
@@ -161,6 +161,36 @@ const handlePreview = (_src: string, list: string[], index: number) => {
   viewerInitialIndex.value = index
   viewerImages.value = list
   viewerVisible.value = true
+}
+
+// ── 卡片操作按钮 ──
+const actionLoading = ref<Record<string, boolean>>({})
+
+const handleRefetch = async (item: any, e: Event) => {
+  e.stopPropagation()
+  actionLoading.value[item.info_id + '_fetch'] = true
+  try {
+    await shengyiApi.refetch(item.info_id)
+    triggerNotify('已重新加入采集队列', 'success')
+  } catch (e: any) {
+    triggerNotify(e?.error || '重新获取失败', 'error')
+  } finally {
+    actionLoading.value[item.info_id + '_fetch'] = false
+  }
+}
+
+const handleRerun = async (item: any, e: Event) => {
+  e.stopPropagation()
+  if (!item.ai_task_id) return
+  actionLoading.value[item.info_id + '_run'] = true
+  try {
+    await workflowsApi.requeue(item.ai_task_id)
+    triggerNotify('已重新加入评估队列', 'success')
+  } catch (e: any) {
+    triggerNotify(e?.error || '重新评估失败', 'error')
+  } finally {
+    actionLoading.value[item.info_id + '_run'] = false
+  }
 }
 
 const formatPrice = (item: any) => {
@@ -355,6 +385,27 @@ onMounted(async () => {
                 <span class="material-symbols-outlined text-[12px] align-text-bottom">hourglass_top</span>
                 {{ item.ai_status === 'running' ? '评估中' : item.ai_status }}
               </span>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="flex items-center justify-end gap-ax-xs mt-ax-sm text-[10px]">
+              <button
+                class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
+                :disabled="actionLoading[item.info_id + '_fetch']"
+                @click.stop="handleRefetch(item, $event)"
+              >
+                <span v-if="actionLoading[item.info_id + '_fetch']" class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
+                重新获取
+              </button>
+              <button
+                v-if="item.ai_task_id"
+                class="px-1.5 py-0.5 rounded border border-outline-variant text-secondary hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
+                :disabled="actionLoading[item.info_id + '_run']"
+                @click.stop="handleRerun(item, $event)"
+              >
+                <span v-if="actionLoading[item.info_id + '_run']" class="material-symbols-outlined text-[12px] align-middle animate-spin mr-0.5">progress_activity</span>
+                重新评估
+              </button>
             </div>
           </div>
         </div>
