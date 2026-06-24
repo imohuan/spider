@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { shengyiApi } from '@/api'
 import { useNotify } from '@/components/ui'
+import AxImageViewer from '@/components/ui/AxImageViewer.vue'
 
 const { triggerNotify } = useNotify()
 
@@ -146,7 +147,21 @@ const allPhotos = (photos: string) => {
 
 const selectedPhotoIndex = ref(0)
 
+// ── AxImageViewer 状态 ──
+const viewerVisible = ref(false)
+const viewerImages = ref<string[]>([])
+const viewerInitialIndex = ref(0)
+
 watch(selectedItem, () => { selectedPhotoIndex.value = 0 })
+
+const proxyUrl = (url: string) =>
+  url ? `/api/images/proxy?url=${encodeURIComponent(url)}` : ''
+
+const handlePreview = (_src: string, list: string[], index: number) => {
+  viewerInitialIndex.value = index
+  viewerImages.value = list
+  viewerVisible.value = true
+}
 
 const formatPrice = (item: any) => {
   const num = item.price_num || ''
@@ -296,11 +311,11 @@ onMounted(async () => {
             <!-- 图片 + 评分 -->
             <div class="flex gap-ax-xs mb-ax-xs">
               <div class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-surface-container-high">
-                <img
+                <AxImage
                   v-if="firstPhoto(item.photos)"
-                  :src="`/api/images/proxy?url=${encodeURIComponent(firstPhoto(item.photos))}`"
-                  class="w-full h-full object-cover"
-                  loading="lazy"
+                  :src="proxyUrl(firstPhoto(item.photos))"
+                  :previewList="allPhotos(item.photos).map(proxyUrl)"
+                  @preview="handlePreview"
                 />
                 <div v-else class="w-full h-full flex items-center justify-center">
                   <span class="material-symbols-outlined text-2xl text-secondary">image_not_supported</span>
@@ -362,12 +377,15 @@ onMounted(async () => {
               <span class="text-[10px] text-secondary">{{ selectedPhotoIndex + 1 }} / {{ allPhotos(selectedItem.photos).length }}</span>
             </div>
             <div class="relative aspect-[4/3] rounded-lg overflow-hidden bg-surface-container-high">
-              <img
-                :src="`/api/images/proxy?url=${encodeURIComponent(allPhotos(selectedItem.photos)[selectedPhotoIndex])}`"
-                class="w-full h-full object-contain"
-                loading="lazy"
+              <AxImage
+                :key="`detail-${selectedPhotoIndex}`"
+                :src="proxyUrl(allPhotos(selectedItem.photos)[selectedPhotoIndex])"
+                :previewList="allPhotos(selectedItem.photos).map(proxyUrl)"
+                :previewIndex="selectedPhotoIndex"
+                objectFit="contain"
+                @preview="handlePreview"
               />
-              <div class="absolute inset-x-0 bottom-2 flex justify-center gap-ax-xs">
+              <div class="absolute inset-x-0 bottom-2 flex justify-center gap-ax-xs z-10">
                 <button
                   v-for="(_, i) in allPhotos(selectedItem.photos)"
                   :key="i"
@@ -378,14 +396,14 @@ onMounted(async () => {
               </div>
               <button
                 v-if="allPhotos(selectedItem.photos).length > 1"
-                class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors"
+                class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors z-10"
                 @click="selectedPhotoIndex = (selectedPhotoIndex - 1 + allPhotos(selectedItem.photos).length) % allPhotos(selectedItem.photos).length"
               >
                 <span class="material-symbols-outlined text-[18px]">chevron_left</span>
               </button>
               <button
                 v-if="allPhotos(selectedItem.photos).length > 1"
-                class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors"
+                class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center text-white transition-colors z-10"
                 @click="selectedPhotoIndex = (selectedPhotoIndex + 1) % allPhotos(selectedItem.photos).length"
               >
                 <span class="material-symbols-outlined text-[18px]">chevron_right</span>
@@ -400,10 +418,9 @@ onMounted(async () => {
                 :class="i === selectedPhotoIndex ? 'border-primary' : 'border-transparent hover:border-outline-secondary'"
                 @click="selectedPhotoIndex = i"
               >
-                <img
-                  :src="`/api/images/proxy?url=${encodeURIComponent(photo)}`"
-                  class="w-full h-full object-cover"
-                  loading="lazy"
+                <AxImage
+                  :src="proxyUrl(photo)"
+                  objectFit="cover"
                 />
               </div>
             </div>
@@ -662,6 +679,13 @@ onMounted(async () => {
       />
     </div>
   </div>
+
+  <!-- ════════════════ 全屏图片查看器 ════════════════ -->
+  <AxImageViewer
+    :images="viewerImages"
+    :initialIndex="viewerInitialIndex"
+    v-model:visible="viewerVisible"
+  />
 </template>
 
 <style scoped>

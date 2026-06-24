@@ -517,21 +517,29 @@ async def _search_nearby(row: dict, key: str) -> tuple[list[dict], str]:
               pois_list 每项包含 id/name/type/address/tel/distance/rating/cost/location。
               error_msg 非空表示发生了可容忍错误（结果可为空列表）。
     """
-    # 拼地址：优先用 district + block + address，如果都没有就跳过
-    parts = [
-        row.get("district", "").strip(),
-        row.get("block", "").strip(),
-        row.get("address", "").strip(),
-    ]
-    full_address = " ".join(p for p in parts if p)
-    if not full_address:
-        return [], "商家地址为空，跳过周边搜索"
+    # 优先直接用 row 中已有的经纬度（detail parser 已从 JS 变量提取）
+    _lng = row.get("lng")
+    _lat = row.get("lat")
+    full_address = (row.get("address", "") or "").strip()
+    if _lng and _lat:
+        lng, lat = float(_lng), float(_lat)
+    else:
+        # 兜底：用地址 Geocode 解析坐标
+        parts = [
+            row.get("district", "").strip(),
+            row.get("block", "").strip(),
+            full_address,
+        ]
+        full_address = " ".join(p for p in parts if p)
+        if not full_address:
+            return [], "商家地址为空，跳过周边搜索"
 
-    coords = await _geocode_address(full_address, key)
-    if coords is None:
-        return [], f"地址解析失败: {full_address!r}"
+        coords = await _geocode_address(full_address, key)
+        if coords is None:
+            return [], f"地址解析失败: {full_address!r}"
 
-    lng, lat = coords
+        lng, lat = coords
+
     location_str = f"{lng},{lat}"
 
     try:
@@ -541,7 +549,7 @@ async def _search_nearby(row: dict, key: str) -> tuple[list[dict], str]:
                 params={
                     "key": key,
                     "location": location_str,
-                    "keywords": _NEARBY_KEYWORDS,
+                    "keywords": row.get("address", "") or _NEARBY_KEYWORDS,
                     "radius": str(_NEARBY_RADIUS),
                     "sortrule": "distance",
                     "offset": str(_NEARBY_LIMIT),
