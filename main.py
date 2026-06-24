@@ -63,14 +63,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--log-level", choices=["INFO", "DEBUG", "WARNING", "ERROR"],
-        default=None, help="日志级别（覆盖 config.log_level）",
+        default="DEBUG", help="日志级别（覆盖 config.log_level）",
     )
     parser.add_argument(
         "--headless", action="store_true", default=None,
         help="浏览器无头模式",
     )
     parser.add_argument(
-        "--show-browser", action="store_true",
+        "--show-browser", action="store_true", default=True,
         help="显示浏览器窗口（调试用，覆盖 --headless）",
     )
     parser.add_argument(
@@ -78,7 +78,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None, help="抓取模式：browser（浏览器）/ http（直连），默认读取 config",
     )
     parser.add_argument(
-        "--serve", action="store_true",
+        "--serve", action="store_true",  default=True,
         help="启动 Web 管理后台（Flask + SocketIO，默认 127.0.0.1:5000）",
     )
     parser.add_argument(
