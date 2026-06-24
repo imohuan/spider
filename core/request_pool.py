@@ -76,6 +76,7 @@ class RequestPool:
         self.image_downloader = image_downloader
         self._loop = loop  # 持久事件循环（production 模式传入，避免 Playwright 对象跨循环失效）
         self._active_tasks: set[asyncio.Task] = set()
+        self._proxy_ua_cache: dict[str, str] = {}  # proxy_ip → User-Agent（同 IP 同 UA）
         self.keep_browser_open: bool = False  # 调试用：True 则 process_url 完成后不关闭 page/browser
         self._last_page: Any = None       # keep_browser_open 时捕获的 page
         self._last_parser: Any = None     # 对应的 parser（用于 on_before_page_close 钩子）
@@ -707,8 +708,13 @@ class RequestPool:
         url = task["url"]
 
         # === Layer 1: config 全局默认 ===
-        if self.config.get_bool("anti_bot_random_ua", False):
-            ua = self._get_random_ua()
+        # 随机 UA 仅在使用代理时生效，直连 IP 随机 UA 无意义且反而可疑
+        # 同一代理 IP 绑定同一 UA（模拟真实用户单设备行为）
+        if self.config.get_bool("anti_bot_random_ua", False) and proxy_record is not None:
+            proxy_ip = proxy_record.ip
+            if proxy_ip not in self._proxy_ua_cache:
+                self._proxy_ua_cache[proxy_ip] = self._get_random_ua()
+            ua = self._proxy_ua_cache[proxy_ip]
         else:
             ua = self.config.get(
                 "http_user_agent",
