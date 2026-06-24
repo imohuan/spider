@@ -19,7 +19,7 @@ class ShengyiZRListParser(SimplePageParser):
             timeout=30000,
         )
 
-    url_pattern = r"58\.com/shengyizr"
+    url_pattern = r"(?:https?://|\.)58\.com/[^\s]*[?&]PGTID="
     table_name = "shengyizr_list"
     table_schema = """
         CREATE TABLE shengyizr_list (
