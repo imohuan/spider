@@ -236,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     workflow_scheduler = components["workflow_scheduler"]
     registry = components["registry"]
     config_mgr = components["config"]
+    state_machine = components["state_machine"]
 
     logger.info(f"已注册 Parser: {len(registry)} 个")
     for cls in registry.classes:
