@@ -57,34 +57,7 @@ _NEARBY_LIMIT = 20      # 最多返回 POI 数量
 # 常量
 # ═══════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """你是一个厨具二手批发商，有多年商用厨房设备采购经验。
-你需要浏览商家发布的转让/出售信息中的图片，评估哪些商家更有合作潜力。
-
-请从以下维度逐一分析图片，并结合商家提供的文本信息，给出综合评估：
-
-1. **铺面规模** — 店面/仓库面积大小，是否能容纳大量设备库存
-2. **设备状况** — 设备新旧程度、品牌档次、摆放是否整齐有序
-3. **经营品类** — 设备种类的丰富度和市场需求匹配度
-4. **信息可靠性** — 图片是否真实拍摄（非网图/PS）、是否展示实际场景
-5. **转让诚意** — 从图片中判断商家是否真正想出手（如店面清仓、搬迁迹象）
-
-请综合商家文本信息（租金、转让费、面积、位置、经营类型等）与图片内容，
-判断该商家与厨具二手批发业务的匹配程度，以及是否有合作收购价值。
-
-**最终输出必须是严格的 JSON 格式，不要包含 markdown 代码块标记：**
-{
-    "score": <1-10 整数>,
-    "level": "<潜力极高 | 值得关注 | 一般 | 不推荐>",
-    "summary": "<一句话总结>",
-    "details": {
-        "scale": "<铺面规模评价>",
-        "equipment": "<设备状况评价>",
-        "category": "<经营品类评价>",
-        "reliability": "<信息可靠性评价>",
-        "intent": "<转让诚意评价>"
-    },
-    "advice": "<具体建议：是否值得联系，预期收购价范围，注意事项>"
-}"""
+from core.config_manager import _AI_EVAL_PROMPT_DEFAULT
 
 _MAX_IMAGES = 9  # 单次最多处理图片数（避免 token 爆炸）
 
@@ -150,7 +123,7 @@ async def execute(params: dict, storage=None, ref_id=None) -> dict:
     max_size = int(params.get("max_size", DEFAULT_MAX_SIZE))
     quality = int(params.get("quality", DEFAULT_QUALITY))
     max_cols = int(params.get("max_cols", DEFAULT_MAX_COLS))
-    system_prompt = params.get("system_prompt", SYSTEM_PROMPT)
+    system_prompt = params.get("system_prompt", _AI_EVAL_PROMPT_DEFAULT)
 
     # ── 1. 下载图片 ──
     logger.info(f"开始评估 {len(image_urls)} 张图片"
