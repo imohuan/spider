@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -44,8 +45,13 @@ class WorkflowRegistry:
         :return: 发现的 workflow 数
         """
         pkg_path = Path(directory)
-        if not pkg_path.exists() or not pkg_path.is_dir():
-            logger.warning(f"workflows 目录不存在: {pkg_path}")
+        if not pkg_path.is_dir():
+            # PyInstaller --onedir: 数据文件在 _internal/ 下
+            _meipass = getattr(sys, "_MEIPASS", None)
+            if _meipass:
+                pkg_path = Path(_meipass) / directory
+        if not pkg_path.is_dir():
+            logger.warning(f"workflows 目录不存在: {Path(directory)}")
             return 0
 
         count_before = len(self._modules)
