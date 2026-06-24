@@ -1,6 +1,9 @@
 from __future__ import annotations
 import json as _json
+import os
+from datetime import datetime
 from flask import Blueprint, current_app, jsonify, request
+from config import RAW_RESPONSE_DIR, PROJECT_ROOT
 from core.storage import Storage
 
 bp = Blueprint('queue', __name__)
@@ -28,6 +31,30 @@ def _resolve_parser_name(url: str, parser_name: str | None) -> str | None:
     except Exception:
         pass
     return parser_name
+
+
+def _save_raw_html(html: str) -> str:
+    """将 raw 模式的 HTML 保存到 data/raw_responses/，返回相对路径。
+
+    文件名格式：raw_{timestamp}_{hash}.html
+    """
+    os.makedirs(RAW_RESPONSE_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    # 取 HTML 长度前 8 位 hex 做简单去重标识
+    tag = format(abs(hash(html[:2000] if len(html) > 2000 else html)), 'x')[:8]
+    filename = f"raw_{ts}_{tag}.html"
+    filepath = os.path.join(RAW_RESPONSE_DIR, filename)
+
+    # 截断过大的 HTML（>5MB）
+    max_size = 5 * 1024 * 1024
+    content = html
+    if len(content) > max_size:
+        half = max_size // 2
+        content = content[:half] + "\n\n<!-- ... HTML 过大，已截断 ... -->\n\n" + content[-half:]
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    return os.path.relpath(filepath, PROJECT_ROOT)
 
 
 @bp.route('/stats')
@@ -96,12 +123,14 @@ def create_task():
     request_config = data.get('request_config') or None
     
     # raw 模式：传入 html 则自动切换，跳过抓取
-    raw_mode = False
+    # HTML 立即保存到 data/raw_responses/，DB 只存文件路径
+    raw_html_path = None
     if html_text:
         fetch_mode = 'raw'
         raw_mode = True
         request_config = request_config or {}
-        request_config['html'] = html_text
+        raw_html_path = _save_raw_html(html_text)
+        request_config['raw_html_path'] = raw_html_path
     
     # Cookie 预设自动匹配（非 raw 模式，不覆盖前端显式传入的 cookies）
     if not raw_mode and (not request_config or 'cookies' not in request_config):

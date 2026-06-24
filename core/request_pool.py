@@ -549,22 +549,38 @@ class RequestPool:
     async def _process_raw(
         self, task: dict, parser: Any, queue_id: int, url: str,
     ) -> str:
-        """Raw 模式：从 request_config.html 中取出 HTML，跳过所有网络/浏览器操作，
-        直接调用 parser.parse() 解析并落库。
+        """Raw 模式：从 request_config.raw_html_path 读取 HTML，
+        跳过所有网络/浏览器操作，直接调用 parser.parse() 解析并落库。
 
         :return: "success" / "failed"
         """
-        # 提取 HTML
+        # 提取 HTML 文件路径
         rc_str = task.get("request_config") or "{}"
         try:
             rc = json.loads(rc_str) if isinstance(rc_str, str) else rc_str
         except (json.JSONDecodeError, TypeError):
             rc = {}
-        html = (rc.get("html", "") or "").strip()
+        raw_html_path = (rc.get("raw_html_path", "") or "").strip()
 
+        if not raw_html_path:
+            logger.error(f"[Raw] queue_id={queue_id} raw_html_path 为空")
+            self.state_machine.mark_failed(queue_id, ERROR_PARSE, "raw 模式 HTML 路径为空")
+            return "failed"
+
+        # 从文件读取 HTML
+        try:
+            filepath = os.path.join(PROJECT_ROOT, raw_html_path)
+            with open(filepath, "r", encoding="utf-8") as f:
+                html = f.read()
+        except Exception as e:
+            logger.error(f"[Raw] queue_id={queue_id} 读取 HTML 文件失败: {filepath} {e}")
+            self.state_machine.mark_failed(queue_id, ERROR_PARSE, f"读取 HTML 文件失败: {e}")
+            return "failed"
+
+        html = html.strip()
         if not html:
-            logger.error(f"[Raw] queue_id={queue_id} HTML 为空，无法解析")
-            self.state_machine.mark_failed(queue_id, ERROR_PARSE, "raw 模式 HTML 为空")
+            logger.error(f"[Raw] queue_id={queue_id} HTML 文件为空")
+            self.state_machine.mark_failed(queue_id, ERROR_PARSE, "raw 模式 HTML 文件为空")
             return "failed"
 
         logger.info(
@@ -576,9 +592,6 @@ class RequestPool:
         request_id = self.storage.create_request(
             queue_id=queue_id, url=url, proxy_ip=None, method="RAW",
         )
-
-        # 保存原始响应（HTML 就是 raw response）
-        raw_path = self._save_raw_response(queue_id, request_id, html)
         response_size = len(html.encode("utf-8"))
 
         # 解析
@@ -593,7 +606,7 @@ class RequestPool:
             )
             self._fail_task(
                 request_id, queue_id, ERROR_PARSE, str(e), None,
-                duration_ms=0, raw_response_path=raw_path,
+                duration_ms=0, raw_response_path=raw_html_path,
             )
             return "failed"
 
@@ -606,7 +619,7 @@ class RequestPool:
             page=None,
             duration_ms=0,
             response_size=response_size,
-            raw_response_path=raw_path,
+            raw_response_path=raw_html_path,
         )
 
     # ---------------- 共享后处理（双模式复用） ----------------

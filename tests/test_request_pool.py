@@ -1,6 +1,8 @@
-"""Tests for core/request_pool.py — _finish_request empty data handling."""
+"""Tests for core/request_pool.py — _finish_request empty data handling and raw mode."""
 
 import asyncio
+import os
+import tempfile
 from unittest.mock import MagicMock
 
 
@@ -61,13 +63,13 @@ class TestFinishRequestEmptyData:
 
 
 class TestProcessRaw:
-    """Raw 模式：跳过抓取，直接解析传入的 HTML。"""
+    """Raw 模式：跳过抓取，从文件读取 HTML 直接解析。"""
 
-    def _make_pool(self, html: str = "<html><body>test</body></html>"):
+    def _make_pool(self):
         from core.request_pool import RequestPool
         pool = RequestPool.__new__(RequestPool)
         pool.storage = MagicMock()
-        pool.storage.create_request.return_value = 1  # 返回整数 ID，避免文件名含 MagicMock 字符串
+        pool.storage.create_request.return_value = 1
         pool.state_machine = MagicMock()
         pool.config = MagicMock()
         pool.config.get.return_value = "browser"
@@ -78,13 +80,23 @@ class TestProcessRaw:
         pool.image_downloader = None
         return pool
 
-    def _make_task(self, html: str, url: str = "https://58.com/test"):
+    def _write_html_file(self, html: str) -> str:
+        """将 HTML 写入 data/raw_responses/，返回相对路径（如 PROJECT_ROOT）。"""
+        import config
+        os.makedirs(config.RAW_RESPONSE_DIR, exist_ok=True)
+        fd, filepath = tempfile.mkstemp(suffix=".html", dir=config.RAW_RESPONSE_DIR, prefix="raw_test_")
+        os.close(fd)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html)
+        return os.path.relpath(filepath, config.PROJECT_ROOT)
+
+    def _make_task(self, raw_html_path: str, url: str = "https://58.com/test"):
         import json
         return {
             "id": 1,
             "url": url,
             "fetch_mode": "raw",
-            "request_config": json.dumps({"html": html}),
+            "request_config": json.dumps({"raw_html_path": raw_html_path}),
         }
 
     def _make_parser(self, data: list[dict] | None = None):
@@ -98,19 +110,36 @@ class TestProcessRaw:
         """正常 HTML → parser.parse 被调用 → 返回 success。"""
         pool = self._make_pool()
         parser = self._make_parser([{"title": "ok"}])
-        task = self._make_task("<html><body>hello</body></html>")
+        html_content = "<html><body>hello</body></html>"
+        path = self._write_html_file(html_content)
+        task = self._make_task(path)
 
         result = asyncio.run(
             pool._process_raw(task, parser, queue_id=1, url=task["url"])
         )
 
         assert result == "success"
-        parser.parse.assert_called_once_with("<html><body>hello</body></html>", task["url"])
+        parser.parse.assert_called_once_with(html_content, task["url"])
         pool.storage.save_business_data.assert_called_once()
         pool.state_machine.mark_done.assert_called_once()
 
-    def test_raw_empty_html_marks_failed(self):
-        """空 HTML → 直接 mark_failed，不调用 parser.parse。"""
+    def test_raw_empty_html_file_marks_failed(self):
+        """空 HTML 文件 → 直接 mark_failed。"""
+        pool = self._make_pool()
+        parser = self._make_parser()
+        path = self._write_html_file("")
+        task = self._make_task(path)
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "failed"
+        pool.state_machine.mark_failed.assert_called_once()
+        parser.parse.assert_not_called()
+
+    def test_raw_missing_path_marks_failed(self):
+        """raw_html_path 为空 → mark_failed。"""
         pool = self._make_pool()
         parser = self._make_parser()
         task = self._make_task("")
@@ -121,14 +150,12 @@ class TestProcessRaw:
 
         assert result == "failed"
         pool.state_machine.mark_failed.assert_called_once()
-        parser.parse.assert_not_called()
 
-    def test_raw_parse_exception_marks_failed(self):
-        """parse 抛异常 → mark_failed。"""
+    def test_raw_file_not_found_marks_failed(self):
+        """文件不存在 → mark_failed。"""
         pool = self._make_pool()
         parser = self._make_parser()
-        parser.parse.side_effect = ValueError("解析崩溃")
-        task = self._make_task("<html><body>bad</body></html>")
+        task = self._make_task("data/raw_responses/nonexistent.html")
 
         result = asyncio.run(
             pool._process_raw(task, parser, queue_id=1, url=task["url"])
@@ -137,19 +164,34 @@ class TestProcessRaw:
         assert result == "failed"
         pool.state_machine.mark_failed.assert_called_once()
 
-    def test_raw_preserves_html_in_raw_response(self):
-        """原始 HTML 应保存为 raw_response 文件。"""
+    def test_raw_parse_exception_marks_failed(self):
+        """parse 抛异常 → mark_failed。"""
+        pool = self._make_pool()
+        parser = self._make_parser()
+        parser.parse.side_effect = ValueError("解析崩溃")
+        path = self._write_html_file("<html><body>bad</body></html>")
+        task = self._make_task(path)
+
+        result = asyncio.run(
+            pool._process_raw(task, parser, queue_id=1, url=task["url"])
+        )
+
+        assert result == "failed"
+        pool.state_machine.mark_failed.assert_called_once()
+
+    def test_raw_passes_raw_html_path_to_finish(self):
+        """_finish_request 收到 raw_html_path 作为 raw_response_path。"""
         pool = self._make_pool()
         parser = self._make_parser([{"title": "ok"}])
         html_content = "<html><head></head><body><div>58同城数据</div></body></html>"
-        task = self._make_task(html_content)
+        path = self._write_html_file(html_content)
+        task = self._make_task(path)
 
         result = asyncio.run(
             pool._process_raw(task, parser, queue_id=1, url=task["url"])
         )
 
         assert result == "success"
-        # _save_raw_response 应被调用，且内容包含原始 HTML
         call_args = pool.storage.mark_request_success.call_args
         raw_path = call_args[1].get("raw_response_path", "")
-        assert raw_path  # 路径非空，表明文件已生成
+        assert raw_path == path  # 路径传给 _finish_request

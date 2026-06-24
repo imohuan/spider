@@ -138,7 +138,7 @@ def test_enqueue_preserves_existing_cookies(client):
 
 
 def test_create_task_raw_html(client):
-    """raw 模式：传入 html 自动切换 fetch_mode='raw'，HTML 存入 request_config。"""
+    """raw 模式：传入 html 自动切换 fetch_mode='raw'，HTML 存文件，DB 只存路径。"""
     resp = client.post("/api/queue", json={
         "url": "https://58.com/ershouche/123",
         "html": "<html><body>58二手车页面</body></html>",
@@ -156,7 +156,14 @@ def test_create_task_raw_html(client):
     assert row is not None
     assert row[0] == "raw"
     rc = json.loads(row[1])
-    assert rc["html"] == "<html><body>58二手车页面</body></html>"
+    # DB 只存路径，不存 HTML 原文
+    assert "raw_html_path" in rc
+    assert "html" not in rc
+    # 路径指向实际文件
+    path = rc["raw_html_path"]
+    assert path.startswith("data/raw_responses/raw_")
+    assert path.endswith(".html")
+    assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", path))
 
 
 def test_create_task_raw_html_with_parser_name(client):
