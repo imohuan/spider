@@ -192,6 +192,16 @@ CREATE TABLE IF NOT EXISTS workflow_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_status ON workflow_queue(status);
 CREATE INDEX IF NOT EXISTS idx_workflow_name ON workflow_queue(workflow_name);
+
+CREATE TABLE IF NOT EXISTS shengyi_tags (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    info_id         TEXT NOT NULL,
+    tag             TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(info_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_shengyi_tags_info ON shengyi_tags(info_id);
+CREATE INDEX IF NOT EXISTS idx_shengyi_tags_tag ON shengyi_tags(tag);
 """
 
 
@@ -710,6 +720,25 @@ class Storage:
             raise TypeError(f"params must be a dict, got {type(params).__name__}")
         params_json = json.dumps(params or {}, ensure_ascii=False)
         with self._lock:
+            # 如果该 ref_id + workflow_name 已存在，重置为 pending 而非硬插
+            existing = self._conn.execute(
+                "SELECT id FROM workflow_queue WHERE ref_id=? AND workflow_name=?",
+                (ref_id, workflow_name),
+            ).fetchone()
+            if existing:
+                self._conn.execute(
+                    "UPDATE workflow_queue SET params=?, status='pending', "
+                    "error=NULL, result=NULL, started_at=NULL, finished_at=NULL, "
+                    "created_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (params_json, existing[0]),
+                )
+                self._conn.commit()
+                task_id = existing[0]
+                logger.info(
+                    f"工作流重置: {workflow_name} ref_id={ref_id} → task_id={task_id}"
+                )
+                return task_id
+
             cur = self._conn.execute(
                 "INSERT INTO workflow_queue (workflow_name, ref_id, params) VALUES (?, ?, ?)",
                 (workflow_name, ref_id, params_json),
