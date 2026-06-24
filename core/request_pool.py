@@ -81,6 +81,26 @@ class RequestPool:
         self._last_parser: Any = None     # 对应的 parser（用于 on_before_page_close 钩子）
         self._debug_sessions: dict[str, dict] = {}  # session_id → {page, parser, browser, expiry, url, timer}
 
+    @staticmethod
+    def _is_browser_crash(error: Exception) -> bool:
+        """检测是否为浏览器崩溃/断开类错误。"""
+        msg = str(error)
+        return any(kw in msg for kw in (
+            "Connection closed", "Target closed", "Browser closed",
+            "Protocol error", "has been closed",
+        ))
+
+    async def _restart_browser(self, url: str) -> bool:
+        """尝试重启浏览器。成功返回 True，失败返回 False。"""
+        try:
+            logger.warning(f"检测到浏览器崩溃，尝试重启... (url={url})")
+            await self.browser.restart()
+            logger.info("浏览器已成功重启")
+            return True
+        except Exception as e:
+            logger.error(f"浏览器重启失败: {e}")
+            return False
+
     async def _close_page_with_hook(self, page: Any, parser: Any) -> None:
         """关闭 page 前调用 Parser 生命周期钩子。"""
         if hasattr(parser, "on_before_page_close"):
@@ -235,6 +255,10 @@ class RequestPool:
         if fetch_mode == "http" and getattr(parser, "requires_browser", False):
             logger.info(f"[{parser.__class__.__name__}] requires_browser=True, 强制使用 browser 模式")
             fetch_mode = "browser"
+
+        # === RAW 模式：跳过抓取，直接解析传入的 HTML ===
+        if fetch_mode == "raw":
+            return await self._process_raw(task, parser, queue_id, url)
 
         # 1. 申请代理 IP
         proxy_record = None
@@ -501,6 +525,16 @@ class RequestPool:
             )
 
         except Exception as e:
+            # 浏览器崩溃：自动重启并重试一次
+            if (self.browser is not None and self._is_browser_crash(e)
+                    and getattr(self, '_browser_crash_retried', False) is False):
+                self._browser_crash_retried = True
+                logger.warning(f"浏览器崩溃，自动重启并重试: {url}")
+                if await self._restart_browser(url):
+                    result = await self._process_url_async(task, parser, show_window=show_window)
+                    self._browser_crash_retried = False
+                    return result
+
             logger.error(f"请求处理异常: {url} {e}", exc_info=True)
             self._fail_task(request_id, queue_id, ERROR_NETWORK, str(e), proxy_record)
             if page is not None and self.browser is not None and not self.keep_browser_open:
@@ -509,6 +543,71 @@ class RequestPool:
                 except Exception:
                     pass
             return "failed"
+
+    # ---------------- RAW 模式（跳过抓取，直接解析传入 HTML） ----------------
+
+    async def _process_raw(
+        self, task: dict, parser: Any, queue_id: int, url: str,
+    ) -> str:
+        """Raw 模式：从 request_config.html 中取出 HTML，跳过所有网络/浏览器操作，
+        直接调用 parser.parse() 解析并落库。
+
+        :return: "success" / "failed"
+        """
+        # 提取 HTML
+        rc_str = task.get("request_config") or "{}"
+        try:
+            rc = json.loads(rc_str) if isinstance(rc_str, str) else rc_str
+        except (json.JSONDecodeError, TypeError):
+            rc = {}
+        html = (rc.get("html", "") or "").strip()
+
+        if not html:
+            logger.error(f"[Raw] queue_id={queue_id} HTML 为空，无法解析")
+            self.state_machine.mark_failed(queue_id, ERROR_PARSE, "raw 模式 HTML 为空")
+            return "failed"
+
+        logger.info(
+            f"[Raw] queue_id={queue_id} 跳过抓取，直接解析 HTML "
+            f"({len(html)} 字符) parser={parser.__class__.__name__}"
+        )
+
+        # 创建最小请求记录
+        request_id = self.storage.create_request(
+            queue_id=queue_id, url=url, proxy_ip=None, method="RAW",
+        )
+
+        # 保存原始响应（HTML 就是 raw response）
+        raw_path = self._save_raw_response(queue_id, request_id, html)
+        response_size = len(html.encode("utf-8"))
+
+        # 解析
+        try:
+            parser.storage = self.storage
+            parser._queue_id = queue_id
+            data = parser.parse(html, url)
+        except Exception as e:
+            logger.error(
+                f"[Parser:{parser.__class__.__name__}] 解析失败: {url} {e}",
+                exc_info=True,
+            )
+            self._fail_task(
+                request_id, queue_id, ERROR_PARSE, str(e), None,
+                duration_ms=0, raw_response_path=raw_path,
+            )
+            return "failed"
+
+        # 走共享后处理（无 proxy/page）
+        return await self._finish_request(
+            task, parser, html, data,
+            queue_id, request_id,
+            proxy_record=None,
+            proxy_url=None,
+            page=None,
+            duration_ms=0,
+            response_size=response_size,
+            raw_response_path=raw_path,
+        )
 
     # ---------------- 共享后处理（双模式复用） ----------------
 

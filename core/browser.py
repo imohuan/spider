@@ -136,12 +136,18 @@ class CrawlerBrowser:
         )
 
     async def close(self) -> None:
-        """关闭浏览器与 Playwright。"""
+        """关闭浏览器与 Playwright（已崩溃时也能安全调用）。"""
         if self._browser is not None:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception as e:
+                logger.debug(f"关闭浏览器时忽略异常（进程可能已崩溃）: {e}")
             self._browser = None
         if self._playwright is not None:
-            await self._playwright.stop()
+            try:
+                await self._playwright.stop()
+            except Exception as e:
+                logger.debug(f"停止 Playwright 时忽略异常: {e}")
             self._playwright = None
         self._browser_pid = None
         logger.info("浏览器已关闭")
