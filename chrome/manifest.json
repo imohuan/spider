@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "58 爬虫助手",
+  "version": "1.0.0",
+  "description": "58 同城爬虫管理助手 — 快速将当前页面加入抓取队列",
+  "host_permissions": [
+    "http://localhost:5175/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
