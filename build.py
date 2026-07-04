@@ -336,8 +336,10 @@ def build_web(skip_venv: bool = False) -> None:
     print()
     print("  提示:")
     print("    - data/ 目录（数据库、日志）会在首次运行时自动创建")
+    print("    - --serve 模式默认使用 HTTP 抓取（无需浏览器），适合 Linux 无头终端")
     print("    - 如需爬虫功能: python main.py --serve --seed <URL>")
     print("    - 纯 Web 数据管理（不抓取）: python main.py --serve")
+    print("    - 注意: Linux 无头终端上浏览器模式不可用，请勿使用 --fetch-mode browser")
 
 
 def print_summary() -> None:
