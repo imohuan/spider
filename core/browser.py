@@ -84,7 +84,7 @@ class CrawlerBrowser:
         config: ConfigManager,
         headless: bool = True,
         browser_type: str = "chromium",
-        channel: str | None = "None",  # 默认用系统 Chrome 而非 Playwright Chromium
+        channel: str | None = None,  # None=Playwright Chromium, "chrome"=系统Chrome, "chromium"=系统Chromium
     ) -> None:
         self.config = config
         self.headless = headless
