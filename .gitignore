@@ -18,7 +18,8 @@ sdist/
 *.manifest
 pip-log.txt
 pip-delete-this-directory.txt
-
+.cache/
+.playwright-browsers/
 # Virtual Environment
 .venv/
 venv/
