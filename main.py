@@ -109,9 +109,6 @@ def build_components(args: argparse.Namespace, event_loop=None) -> dict[str, Any
         config_mgr.set("log_level", args.log_level)
     if args.fetch_mode:
         config_mgr.set("fetch_mode", args.fetch_mode)
-    elif args.serve:
-        # --serve 模式默认 HTTP，避免 Linux 无头终端 browser 模式失败
-        config_mgr.set("fetch_mode", "http")
 
     state_machine = StateMachine(storage, config_mgr)
 
@@ -317,8 +314,8 @@ def main(argv: list[str] | None = None) -> int:
             event_loop.run_until_complete(browser.start())
             logger.info("浏览器已启动")
         except Exception as e:
-            logger.error(f"浏览器启动失败（无头终端/缺少依赖）: {e}")
-            logger.error("提示: 使用 --fetch-mode http 切换为纯 HTTP 模式（Linux 无头终端推荐）")
+            logger.error(f"浏览器启动失败: {e}")
+            logger.error("Linux 无头运行需要系统依赖，安装: playwright install-deps chromium")
             browser = None
 
         # CDP 模式下连接本地 Chrome
