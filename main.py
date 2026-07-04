@@ -317,6 +317,11 @@ def main(argv: list[str] | None = None) -> int:
             logger.error(f"浏览器启动失败: {e}")
             logger.error("Linux 无头运行需要系统依赖，安装: playwright install-deps chromium")
             browser = None
+            # 同步更新组件字典和 request_pool，防止调度器引用未启动的 browser
+            components["browser"] = None
+            request_pool = components.get("request_pool")
+            if request_pool is not None:
+                request_pool.browser = None
 
         # CDP 模式下连接本地 Chrome
         cdp_browser = components.get("cdp_browser")
