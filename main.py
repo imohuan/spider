@@ -336,10 +336,15 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             if args.serve:
-                # --serve 模式：只跑 Web 后台，爬虫由用户从 UI 手动触发，主线程守护等待
+                # --serve 模式：只跑 Web 后台，爬虫由用户从 UI 手动触发，主线程轮询等待
                 logger.info("Web UI 模式：爬虫未自动启动，请从管理后台手动触发。")
-                if server_thread is not None:
-                    server_thread.join()
+                logger.info("按 Ctrl+C 退出。")
+                import time as _time
+                while server_thread is not None and server_thread.is_alive():
+                    if _shutting_down:
+                        logger.info("收到退出信号，停止 Web 服务...")
+                        break
+                    _time.sleep(0.5)
                 return 0
             else:
                 # 纯爬虫模式：直接运行主循环
