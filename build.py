@@ -26,7 +26,9 @@ build.py — 58-data 项目一键打包脚本
     PyInstaller --onedir 的输出就是 .exe + .pyd + .pyc 的组合。
 
 用法:
-    python build.py             # 全量构建
+    python build.py             # 全量构建（EXE）
+    python build.py --web       # Web 版构建（前端 build + venv，不打包 EXE，适合 Linux 部署）
+    python build.py --web --skip-venv  # Web 版构建（仅前端，跳过 venv）
     python build.py --frontend  # 仅构建前端
     python build.py --backend   # 仅打包后端（需先构建前端和 venv）
     python build.py --skip-venv # 全量构建但跳过 venv 创建
@@ -298,6 +300,46 @@ def package_backend() -> None:
     print(f"  打包完成 -> {DIST_DIR / APP_NAME}")
 
 
+def build_web(skip_venv: bool = False) -> None:
+    """构建前端 + 准备可直接运行的后端环境（不打包 EXE）。
+
+    适用于 Linux 无头终端部署：
+    1. 可选：创建 venv 并安装 Python 依赖
+    2. 构建前端 Vite 项目 → web/static/
+    3. Flask 直接 serve 静态文件（create_app(static_folder='web/static')）
+    4. 不安装 Playwright 浏览器、不打包 PyInstaller
+
+    启动方式:
+        python main.py --serve           # Web 管理后台
+        python main.py --serve --seed <URL>  # 带爬虫
+    """
+    if not skip_venv:
+        setup_venv()
+
+    build_frontend()
+
+    print("=" * 60)
+    print("Web 构建完成")
+    print("=" * 60)
+    print(f"  前端静态文件: {STATIC_DIR}")
+    print(f"  index.html: {(STATIC_DIR / 'index.html').exists()}")
+    print()
+
+    print("  部署到 Linux 无头终端:")
+    print(f"    1. 复制整个项目到目标机器")
+    if skip_venv:
+        print(f"    2. pip install -r requirements.txt")
+    else:
+        print(f"    2. source .venv/bin/activate")
+    print(f"    3. python main.py --serve")
+    print(f"    4. 浏览器访问 http://<机器IP>:5000")
+    print()
+    print("  提示:")
+    print("    - data/ 目录（数据库、日志）会在首次运行时自动创建")
+    print("    - 如需爬虫功能: python main.py --serve --seed <URL>")
+    print("    - 纯 Web 数据管理（不抓取）: python main.py --serve")
+
+
 def print_summary() -> None:
     """输出打包结果摘要和使用说明。"""
     print("=" * 60)
@@ -367,6 +409,10 @@ def main() -> None:
         description="58-data 项目打包工具 — 前端 + 后端 + Playwright → 独立可执行文件夹",
     )
     parser.add_argument(
+        "--web", action="store_true",
+        help="构建 Web 版（前端 Vite build → web/static/，不打包 EXE，适合 Linux 无头终端部署）",
+    )
+    parser.add_argument(
         "--frontend", action="store_true",
         help="仅构建前端 (pnpm build → web/static/)",
     )
@@ -388,6 +434,10 @@ def main() -> None:
     os.chdir(PROJECT_ROOT)
 
     # ── 单步模式 ──
+    if args.web:
+        build_web(skip_venv=args.skip_venv)
+        return
+
     if args.frontend:
         build_frontend()
         return
