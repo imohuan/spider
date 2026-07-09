@@ -68,7 +68,9 @@ export const configApi = {
 }
 
 export const logsApi = {
-  getAll: () => api.get('/logs', { size: -1 }),
+  /** 分页获取日志，最新在前，page=1 是最新的一批 */
+  getPage: (p: { page?: number; size?: number; level?: string; module?: string; search?: string }) =>
+    api.get('/logs', p),
 }
 
 export const parsersApi = {
